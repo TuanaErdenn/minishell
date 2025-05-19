@@ -6,7 +6,7 @@
 #    By: terden <terden@student.42.fr>              +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2024/10/12 19:44:42 by terden            #+#    #+#              #
-#    Updated: 2025/04/22 14:25:52 by terden           ###   ########.fr        #
+#    Updated: 2024/10/27 17:56:06 by terden           ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
@@ -48,7 +48,7 @@ SRC = ft_isalpha.c \
       ft_putchar_fd.c \
       ft_putstr_fd.c \
       ft_putendl_fd.c \
-      ft_putnbr_fd.c main.c
+      ft_putnbr_fd.c 
 
 OBJS = $(SRC:.c=.o)
 

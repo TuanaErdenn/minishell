@@ -3,7 +3,7 @@ NAME = minishell
 CC = cc
 CFLAGS = -Wall -Wextra -Werror -g
 
-SRCS = minishell.c signal_handler.c utils.c lexer.c token.c
+SRCS = main.c parse.c token.c builtin.c free.c env.c
 
 OBJS = $(SRCS:.c=.o)
 
