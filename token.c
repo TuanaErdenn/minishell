@@ -166,6 +166,8 @@ int create_quote_token(char *input, int i, t_token **tokens, int *token_index)
 
 	(*token_index)++;
 	i++; // Kapanış tırnağını atla
+
+
 	return (i);
 }
 
@@ -261,23 +263,29 @@ int fill_tokens(char *input, t_token **tokens)
 	while (input[i])
 	{
 		i = skip_spaces(input, i);
-
 		if (!input[i])
 			break;
 
+		int result = -1;
 		if (input[i] == '\'' || input[i] == '\"')
-			i = create_quote_token(input, i, tokens, &token_index);
+			result = create_quote_token(input, i, tokens, &token_index);
 		else if (input[i] == '|' || input[i] == '<' || input[i] == '>')
-			i = create_special_token(input, i, tokens, &token_index);
+			result = create_special_token(input, i, tokens, &token_index);
 		else
-			i = create_word_token(input, i, tokens, &token_index);
+			result = create_word_token(input, i, tokens, &token_index);
 
-		if (i == -1)
+		if (result == -1)
+		{
+			tokens[token_index] = NULL;  // Valgrind için güvenli bitiş
 			return 0;
+		}
+		i = result;
 	}
 
+	tokens[token_index] = NULL; // NULL terminator unutulmasın
 	return 1;
 }
+
 
 /* Tokenize ana fonksiyonu */
 t_token **tokenize(char *input)

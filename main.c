@@ -1,67 +1,109 @@
 #include "minishell.h"
 
-void	print_ast(t_astnode *node, int level)
-{
-	if (!node)
-		return ;
-	for (int i = 0; i < level; i++)
-		printf("  ");
-	printf("%s\n", node->content);
-	print_ast(node->left, level + 1);
-	print_ast(node->right, level + 1);
-}
-
 /* Token türünü string olarak döner */
 const char	*get_token_type_str(int type)
 {
-	if (type == 0)
+	if (type == T_WORD)
 		return ("WORD");
-	if (type == 1)
+	if (type == T_PIPE)
 		return ("PIPE");
-	if (type == 2)
-		return ("REDIR_IN");
-	if (type == 3)
-		return ("REDIR_OUT");
-	if (type == 4)
+	if (type == T_INPUT)
+		return ("INPUT");
+	if (type == T_OUTPUT)
+		return ("OUTPUT");
+	if (type == T_APPEND)
 		return ("APPEND");
-	if (type == 5)
+	if (type == T_HEREDOC)
 		return ("HEREDOC");
+	if (type == T_QUOTE)
+		return ("QUOTE");
+	if (type == T_NIL)
+		return ("NIL");
+	if (type == T_INVALID)
+		return ("INVALID");
 	return ("UNKNOWN");
 }
 
 /* Token dizisini yazdır */
 void	print_tokens(t_token **tokens)
 {
-	int	i;
-
-	i = 0;
+	int	i = 0;
 	while (tokens[i])
 	{
-		printf("Token[%d]: '%s' (type: %s)\n", i, tokens[i]->value,
-			get_token_type_str(tokens[i]->type));
+		printf("Token[%d]: '%s' (type: %s, quote: %d)\n",
+			i, tokens[i]->value, get_token_type_str(tokens[i]->type), tokens[i]->quote_type);
 		i++;
 	}
 	printf("-----------------\n\n");
 }
 
-void	print_env(char **envp)
-{
-	int	i;
+/* AST ağacını yazdır */
 
-	i = 0;
-	while (envp[i])
+void	print_indent(int level)
+{
+	while (level-- > 0)
+		printf("  ");
+}
+
+void	print_ast(t_ast *node, int level)
+{
+	if (!node)
+		return;
+
+	print_indent(level);
+
+	// Komut düğümü
+	if (node->type == NODE_COMMAND)
 	{
-		printf("%s\n", envp[i]);
-		i++;
+		printf("COMMAND:");
+		if (node->args)
+		{
+			for (int i = 0; node->args[i]; i++)
+				printf(" %s", node->args[i]);
+		}
+		printf("\n");
+	}
+
+	// PIPE düğümü
+	else if (node->type == NODE_PIPE)
+	{
+		printf("PIPE\n");
+
+		print_indent(level);
+		printf("LEFT:\n");
+		print_ast(node->left, level + 1);
+
+		print_indent(level);
+		printf("RIGHT:\n");
+		print_ast(node->right, level + 1);
+	}
+
+	// Redirect düğümü
+	else if (node->type == NODE_REDIR)
+	{
+		printf("REDIR ");
+		if (node->redirect_type == REDIR_IN)
+			printf("<");
+		else if (node->redirect_type == REDIR_OUT)
+			printf(">");
+		else if (node->redirect_type == REDIR_APPEND)
+			printf(">>");
+		else if (node->redirect_type == REDIR_HEREDOC)
+			printf("<<");
+
+		printf(" file: %s\n", node->file);
+
+		print_indent(level);
+		printf("COMMAND/REDIR BELOW:\n");
+		print_ast(node->left, level + 1); // Altındaki komutu veya iç içe rediri yazdır
 	}
 }
+
 
 /* Çevre değişkenlerini yazdır (debug için) */
 void	print_env_list(t_env *env_list)
 {
-	t_env	*temp;
-
-	temp = env_list;
+	t_env	*temp = env_list;
 	while (temp)
 	{
 		printf("%s=%s\n", temp->key, temp->value);
@@ -71,13 +113,10 @@ void	print_env_list(t_env *env_list)
 
 static int	check_quotes(char *input)
 {
-	int	in_single;
-	int	in_double;
-	int	i;
+	int	in_single = 0;
+	int	in_double = 0;
+	int	i = 0;
 
-	in_single = 0;
-	in_double = 0;
-	i = 0;
 	while (input[i])
 	{
 		if (input[i] == '"' && !in_single)
@@ -94,43 +133,35 @@ static int	check_quotes(char *input)
 	return (1);
 }
 
-/* AST'yi yürütme (şu an sadece debug için yazdırma işlemi yapacak) */
-static int	execute_ast(t_astnode *ast, t_env *env_list, int exit_code)
-{
-	if (!ast)
-		return (exit_code);
-	printf("Yürütülüyor: %s\n", ast->content);
-	// Burada ileride komut yürütme işlemi yapılacak
-	if (ast->left)
-		execute_ast(ast->left, env_list, exit_code);
-	if (ast->right)
-		execute_ast(ast->right, env_list, exit_code);
-	return (exit_code);
-}
-
 /* Komut girişini işleme */
 static int	process_input(char *input, t_env *env_list, int exit_code)
 {
+	(void)env_list; // Şu an kullanılmıyor ama ileride expansion için lazım olacak
 	t_token		**tokens;
-	t_astnode	*ast;
+	t_ast		*ast;
 
 	if (!check_quotes(input))
 		return (exit_code);
+
 	tokens = tokenize(input);
 	if (!tokens)
 		return (exit_code);
+
 	printf("\n--- TOKENS ---\n");
 	print_tokens(tokens);
-	ast = parse(tokens);
+
+	ast = parse_tokens(tokens);
 	if (ast)
 	{
+		expand_ast(ast, env_list, exit_code);
+		
 		printf("\n--- AST YAPISI ---\n");
 		print_ast(ast, 0);
-		// AST'yi Yürütme
-		exit_code = execute_ast(ast, env_list, exit_code);
 		free_ast(ast);
 	}
-	// Bellek Temizliği
+	else
+		printf("Parser: AST oluşturulamadı!\n");
+
 	freetokens(tokens);
 	return (exit_code);
 }
@@ -138,7 +169,7 @@ static int	process_input(char *input, t_env *env_list, int exit_code)
 /* exit komutunu kontrol etme */
 static int	handle_exit(char *input, t_env *env_list)
 {
-	if (strcmp(input, "exit") == 0)
+	if (ft_strcmp(input, "exit") == 0)
 	{
 		write(1, "exit\n", 5);
 		free(input);
@@ -152,9 +183,8 @@ int	main(int argc, char **argv, char **envp)
 {
 	char	*input;
 	t_env	*env_list;
-	int		exit_code;
+	int		exit_code = 0;
 
-	exit_code = 0;
 	(void)argv;
 	if (argc != 1)
 	{

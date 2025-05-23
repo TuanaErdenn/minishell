@@ -1,95 +1,181 @@
 #include "minishell.h"
-#include <string.h>
-#include <stdlib.h>
 
-/* AST Node oluşturma */
-t_astnode *create_ast_node(char *content)
+/* PIPE varsa ayrıştır, yoksa komut olarak işle */
+t_ast *parse_tokens(t_token **tokens)
 {
-    t_astnode *new_node = (t_astnode *)malloc(sizeof(t_astnode));
-    if (!new_node)
-        return NULL;
-    new_node->content = strdup(content);
-    new_node->left = NULL;
-    new_node->right = NULL;
-    return new_node;
+	int i = 0;
+
+	// Token dizisinde PIPE arıyoruz
+	while (tokens[i])
+	{
+		if (tokens[i]->type == T_PIPE)
+			return parse_pipe(tokens, i); // İlk PIPE bulunduğunda parçala
+		i++;
+	}
+	return parse_command(tokens, 0, i); // PIPE yoksa tüm aralık komut olarak gönder
 }
 
-/* AST Node'ları serbest bırakma */
-void free_ast(t_astnode *node)
+/* PIPE bulunduğunda sol ve sağ parçaları ayırarak AST'yi rekürsif kur */
+t_ast *parse_pipe(t_token **tokens, int pipe_index)
 {
-    if (!node)
-        return;
-    free_ast(node->left);
-    free_ast(node->right);
-    if (node->content)
-        free(node->content);
-    free(node);
+	t_ast *node;
+	t_ast *left = parse_command(tokens, 0, pipe_index); // PIPE'dan önceki kısım
+	t_ast *right = parse_tokens(&tokens[pipe_index + 1]); // Sonraki kısım rekürsif çağrılır
+
+	node = malloc(sizeof(t_ast));
+	if (!node)
+		return NULL;
+
+	// PIPE AST düğümü oluştur
+	node->type = NODE_PIPE;
+	node->args = NULL;
+	node->quote_types = NULL;
+	node->redirect_type = 0;
+	node->file = NULL;
+	node->left = left;
+	node->right = right;
+
+	return node;
 }
 
-/* Operatör mü? */
-int is_operator(int type)
+/* Komut + redirect’leri ayrıştıran fonksiyon */
+t_ast *parse_command(t_token **tokens, int start, int end)
 {
-    return (type == 1 || type == 2 || type == 3);
+	t_ast *cmd_node = NULL;
+	t_ast *redir_node = NULL;
+	char **args = NULL;
+	int *quotes = NULL;
+	int i = start;
+	int count = 0;
+
+	// 1. Komut argümanlarının sayısını belirle (başlangıç WORD’ler)
+	while (i < end && tokens[i]->type == T_WORD)
+	{
+		count++;
+		i++;
+	}
+
+	// 2. Argümanlar ve quote tipleri için yer ayır
+	if (count > 0)
+	{
+		args = malloc(sizeof(char *) * (count + 1));
+		quotes = malloc(sizeof(int) * count);
+		if (!args || !quotes)
+			return NULL;
+
+		i = start;
+		int j = 0;
+		while (i < end && tokens[i]->type == T_WORD)
+		{
+			args[j] = ft_strdup(tokens[i]->value);
+			quotes[j] = tokens[i]->quote_type;
+			i++;
+			j++;
+		}
+		args[j] = NULL;
+
+		// 3. Komut node'u oluştur
+		cmd_node = malloc(sizeof(t_ast));
+		if (!cmd_node)
+			return NULL;
+		cmd_node->type = NODE_COMMAND;
+		cmd_node->args = args;
+		cmd_node->quote_types = quotes;
+		cmd_node->redirect_type = 0;
+		cmd_node->file = NULL;
+		cmd_node->left = NULL;
+		cmd_node->right = NULL;
+	}
+
+	// 4. Redirect'leri sırayla işle
+	while (i < end && (tokens[i]->type >= T_INPUT && tokens[i]->type <= T_HEREDOC))
+	{
+		t_redirect_type redir_type;
+
+		// Redirection türünü belirle
+		if (tokens[i]->type == T_INPUT)
+			redir_type = REDIR_IN;
+		else if (tokens[i]->type == T_OUTPUT)
+			redir_type = REDIR_OUT;
+		else if (tokens[i]->type == T_APPEND)
+			redir_type = REDIR_APPEND;
+		else
+			redir_type = REDIR_HEREDOC;
+
+		// Redir sonrası dosya adı gelmeli
+		if (i + 1 >= end || tokens[i + 1]->type != T_WORD)
+		{
+			printf("Syntax Error: Missing file after redirection\n");
+			free_ast(cmd_node);
+			return NULL;
+		}
+
+		// 5. Redir node oluştur
+		redir_node = malloc(sizeof(t_ast));
+		if (!redir_node)
+			return NULL;
+
+		redir_node->type = NODE_REDIR;
+		redir_node->redirect_type = redir_type;
+		redir_node->file = ft_strdup(tokens[i + 1]->value);
+		redir_node->args = NULL;
+		redir_node->quote_types = NULL;
+		redir_node->right = NULL;
+		redir_node->left = cmd_node; // cmd_node şu ana kadarki komutsa altına bağla
+
+		cmd_node = redir_node; // redir artık yeni kök node olur
+		i += 2;
+	}
+
+	// 6. Eğer redirect başta geldi ve komut henüz yoksa, şimdi al
+	if (cmd_node && cmd_node->type == NODE_REDIR && cmd_node->left == NULL)
+	{
+		int k = i;
+		int cmd_start = -1;
+
+		while (k < end)
+		{
+			if (tokens[k]->type == T_WORD)
+			{
+				cmd_start = k;
+				break;
+			}
+			k++;
+		}
+
+		if (cmd_start != -1)
+		{
+			t_ast *recovered_cmd = parse_command(tokens, cmd_start, end);
+			if (!recovered_cmd)
+			{
+				free_ast(cmd_node);
+				return NULL;
+			}
+			cmd_node->left = recovered_cmd;
+		}
+	}
+
+	return cmd_node;
 }
 
-/* Operatör önceliği */
-int get_precedence(int type)
+
+/* AST'nin belleğini temizler (rekürsif olarak) */
+void free_ast(t_ast *node)
 {
-    if (type == 1)  // PIPE
-        return 1;
-    if (type == 2 || type == 3)  // REDIR_OUT, REDIR_IN
-        return 2;
-    return 0;
-}
-
-/* AST oluşturucu */
-t_astnode *parse(t_token **tokens)
-{
-    t_astnode *root = NULL;
-    t_astnode *current = NULL;
-    int i = 0;
-
-    while (tokens[i])
-    {
-        t_astnode *new_node = create_ast_node(tokens[i]->value);
-
-        if (is_operator(tokens[i]->type))
-        {
-            int precedence = get_precedence(tokens[i]->type);
-
-            if (!root || precedence >= get_precedence(root->content[0]))
-            {
-                new_node->left = root;
-                root = new_node;
-            }
-            else
-            {
-                current = root;
-                while (current->right && is_operator(current->right->content[0]))
-                    current = current->right;
-
-                new_node->left = current->right;
-                current->right = new_node;
-            }
-        }
-        else
-        {
-            if (!root)
-            {
-                root = new_node;
-            }
-            else
-            {
-                current = root;
-                while (current->right)
-                    current = current->right;
-
-                current->right = new_node;
-            }
-        }
-
-        i++;
-    }
-
-    return root;
+	if (!node)
+		return;
+	if (node->args)
+	{
+		int i = 0;
+		while (node->args[i])
+			free(node->args[i++]);
+		free(node->args);
+	}
+	if (node->quote_types)
+		free(node->quote_types);
+	if (node->file)
+		free(node->file);
+	free_ast(node->left);
+	free_ast(node->right);
+	free(node);
 }
