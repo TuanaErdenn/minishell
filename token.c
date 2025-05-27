@@ -95,7 +95,7 @@ int count_tokens(char *input)
 
 		if (input[i] == '\'' || input[i] == '\"')
 			i = process_quote_token(input, i, &count);
-		else if (input[i] == '|' || input[i] == '<' || input[i] == '>' || input[i] == '$')
+		else if (input[i] == '|' || input[i] == '<' || input[i] == '>')
 			i = process_special_token(input, i, &count);
 		else
 			i = process_word_token(input, i, &count);
@@ -111,11 +111,7 @@ t_token *create_token_with_quote(char *value, t_token_type type, int quote_type)
 	if (!token)
 		return NULL;
 
-	if (value)
-		token->value = ft_strdup(value);
-	else
-		token->value = ft_strdup(""); // Boş string, NULL değil
-
+	token->value = ft_strdup(value);
 	if (!token->value)
 	{
 		free(token);
@@ -124,13 +120,14 @@ t_token *create_token_with_quote(char *value, t_token_type type, int quote_type)
 
 	token->type = type;
 	token->quote_type = quote_type;
+	token->next = NULL;
 	return token;
 }
 
 /* Normal create_token fonksiyonunu güncelle */
 t_token *create_token(char *value, t_token_type type)
 {
-	return create_token_with_quote(value, type, 0); // Varsayılan quote_type: 0 (no quote)
+	return create_token_with_quote(value, type, Q_NONE);
 }
 
 /* Tırnaklı token oluştur */
@@ -154,11 +151,11 @@ int create_quote_token(char *input, int i, t_token **tokens, int *token_index)
 
 	// Tırnak tipini belirle (1: tek tırnak, 2: çift tırnak)
 	if (quote == '\'')
-		quote_type = 1;
+		quote_type = Q_SINGLE;
 	else
-		quote_type = 2;
+		quote_type = Q_DOUBLE;
 
-	tokens[*token_index] = create_token_with_quote(value, T_QUOTE, quote_type);
+	tokens[*token_index] = create_token_with_quote(value, T_WORD, quote_type);
 	free(value);
 
 	if (!tokens[*token_index])

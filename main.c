@@ -15,10 +15,6 @@ const char	*get_token_type_str(int type)
 		return ("APPEND");
 	if (type == T_HEREDOC)
 		return ("HEREDOC");
-	if (type == T_QUOTE)
-		return ("QUOTE");
-	if (type == T_NIL)
-		return ("NIL");
 	if (type == T_INVALID)
 		return ("INVALID");
 	return ("UNKNOWN");
@@ -153,8 +149,6 @@ static int	process_input(char *input, t_env *env_list, int exit_code)
 	ast = parse_tokens(tokens);
 	if (ast)
 	{
-		expand_ast(ast, env_list, exit_code);
-		
 		printf("\n--- AST YAPISI ---\n");
 		print_ast(ast, 0);
 		free_ast(ast);

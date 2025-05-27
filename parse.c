@@ -32,6 +32,7 @@ t_ast *parse_pipe(t_token **tokens, int pipe_index)
 	node->quote_types = NULL;
 	node->redirect_type = 0;
 	node->file = NULL;
+	node->file_quote = Q_NONE;
 	node->left = left;
 	node->right = right;
 
@@ -44,7 +45,7 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 	t_ast *cmd_node = NULL;
 	t_ast *redir_node = NULL;
 	char **args = NULL;
-	int *quotes = NULL;
+	t_quote_type *quotes = NULL;
 	int i = start;
 	int count = 0;
 
@@ -61,7 +62,7 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 		args = malloc(sizeof(char *) * (count + 1));
 		quotes = malloc(sizeof(int) * count);
 		if (!args || !quotes)
-			return NULL;
+			return (free(args), free(quotes), NULL);
 
 		i = start;
 		int j = 0;
@@ -77,12 +78,13 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 		// 3. Komut node'u oluştur
 		cmd_node = malloc(sizeof(t_ast));
 		if (!cmd_node)
-			return NULL;
+			return (free(args), free(quotes), NULL);
 		cmd_node->type = NODE_COMMAND;
 		cmd_node->args = args;
 		cmd_node->quote_types = quotes;
 		cmd_node->redirect_type = 0;
 		cmd_node->file = NULL;
+		cmd_node->file_quote = Q_NONE;
 		cmd_node->left = NULL;
 		cmd_node->right = NULL;
 	}
@@ -113,17 +115,16 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 		// 5. Redir node oluştur
 		redir_node = malloc(sizeof(t_ast));
 		if (!redir_node)
-			return NULL;
-
+			return (free_ast(cmd_node), NULL);
 		redir_node->type = NODE_REDIR;
 		redir_node->redirect_type = redir_type;
 		redir_node->file = ft_strdup(tokens[i + 1]->value);
+		redir_node->file_quote = tokens[i + 1]->quote_type;
 		redir_node->args = NULL;
 		redir_node->quote_types = NULL;
+		redir_node->left = cmd_node;
 		redir_node->right = NULL;
-		redir_node->left = cmd_node; // cmd_node şu ana kadarki komutsa altına bağla
-
-		cmd_node = redir_node; // redir artık yeni kök node olur
+		cmd_node = redir_node;
 		i += 2;
 	}
 
@@ -160,21 +161,21 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 
 
 /* AST'nin belleğini temizler (rekürsif olarak) */
-void free_ast(t_ast *node)
+void	free_ast(t_ast *node)
 {
+	int	i;
+
 	if (!node)
 		return;
 	if (node->args)
 	{
-		int i = 0;
+		i = 0;
 		while (node->args[i])
 			free(node->args[i++]);
 		free(node->args);
 	}
-	if (node->quote_types)
-		free(node->quote_types);
-	if (node->file)
-		free(node->file);
+	free(node->quote_types);
+	free(node->file);
 	free_ast(node->left);
 	free_ast(node->right);
 	free(node);
