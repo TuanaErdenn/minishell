@@ -107,6 +107,10 @@ void	print_env_list(t_env *env_list)
 	}
 }
 
+#include "minishell.h"
+
+/* ... print_tokens, print_ast vs. aynı kalıyor ... */
+
 static int	check_quotes(char *input)
 {
 	int	in_single = 0;
@@ -130,23 +134,25 @@ static int	check_quotes(char *input)
 }
 
 /* Komut girişini işleme */
-static int	process_input(char *input, t_env *env_list, int exit_code)
+static void	process_input(char *input, t_env *env_list, t_shell *shell)
 {
-	(void)env_list; // Şu an kullanılmıyor ama ileride expansion için lazım olacak
 	t_token		**tokens;
 	t_ast		*ast;
 
 	if (!check_quotes(input))
-		return (exit_code);
+		return;
 
 	tokens = tokenize(input);
 	if (!tokens)
-		return (exit_code);
+		return;
 
 	printf("\n--- TOKENS ---\n");
 	print_tokens(tokens);
 
 	ast = parse_tokens(tokens);
+	expand_ast(ast , env_list, shell);
+	execute_ast(ast, &env_list, shell);
+
 	if (ast)
 	{
 		printf("\n--- AST YAPISI ---\n");
@@ -157,8 +163,8 @@ static int	process_input(char *input, t_env *env_list, int exit_code)
 		printf("Parser: AST oluşturulamadı!\n");
 
 	freetokens(tokens);
-	return (exit_code);
 }
+
 
 /* exit komutunu kontrol etme */
 static int	handle_exit(char *input, t_env *env_list)
@@ -175,9 +181,9 @@ static int	handle_exit(char *input, t_env *env_list)
 
 int	main(int argc, char **argv, char **envp)
 {
-	char	*input;
-	t_env	*env_list;
-	int		exit_code = 0;
+	char		*input;
+	t_env		*env_list;
+	t_shell		shell;
 
 	(void)argv;
 	if (argc != 1)
@@ -191,6 +197,9 @@ int	main(int argc, char **argv, char **envp)
 		ft_putstr_fd("Error: Failed to initialize environment variables\n", 2);
 		return (1);
 	}
+	shell.exit_code = 0;
+	shell.envp = envp;
+
 	while (1)
 	{
 		input = readline("🐣🌞 minishell ");
@@ -201,9 +210,10 @@ int	main(int argc, char **argv, char **envp)
 			add_history(input);
 			if (handle_exit(input, env_list))
 				break ;
-			exit_code = process_input(input, env_list, exit_code);
+			process_input(input, env_list, &shell);
 		}
 		free(input);
 	}
-	return (exit_code);
+	return (shell.exit_code);
 }
+

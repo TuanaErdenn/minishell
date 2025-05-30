@@ -108,15 +108,15 @@ typedef struct s_env
 /* ==================== BUILTIN VE GENEL FONKSİYONLAR ==================== */
 int ft_pwd(void);
 int ft_strcmp(const char *s1, const char *s2);
-int ft_echo(t_env *env_list, char **args, t_cmd cmd, int exit_code);
+int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell);
 int ft_env(t_env *env_list);
 int ft_cd(t_env *env_list, char **args);
 // builtin.c dosyasının başına ekleyin
-void print_with_expansion(t_env *env_list, char *str, int exit_code);
+void print_with_expansion(t_env *env_list, char *str, t_shell *shell);
 void print_env(char **envp);
-int execute_command(t_env *env_list, t_cmd *cmd, int exit_code);
+int execute_command(t_env *env_list, t_cmd *cmd, t_shell *shell);
 int is_builtin(t_cmd *cmd);
-int run_builtin(t_env *env_list, t_cmd *cmd, int exit_code);
+int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell);
 
 /* ==================== ENV FONKSİYONLARI ==================== */
 char *get_env_value(t_env *env_list, char *key);
@@ -136,8 +136,17 @@ t_ast *parse_pipe(t_token **tokens, int pipe_index);
 t_ast *parse_command(t_token **tokens, int start, int end);
 t_ast *parse_redirection(t_token **tokens, int start, int end);
 void free_ast(t_ast *node);
+void execute_ast(t_ast *node, t_env **env_list, t_shell *shell);
 
 /*=========================== EXPANDER ==========================*/
+void expand_ast(t_ast *node, t_env *env_list, t_shell *shell);
+
+
+void pipe_execute(t_ast *node, t_env **env_list, t_shell *shell);
+int	add_update_env(t_env **env_list, char *key, char *value);
+int	execute_export(t_env **env_list, char **args);
+int	execute_unset(t_env **env_list, char **args);
+void add_env_node(t_env **env_list, t_env *new_node);
 
 
 #endif

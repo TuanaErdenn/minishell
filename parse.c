@@ -180,3 +180,35 @@ void	free_ast(t_ast *node)
 	free_ast(node->right);
 	free(node);
 }
+
+
+void execute_ast(t_ast *node, t_env **env_list, t_shell *shell)
+{
+	t_cmd	cmd;
+
+	if (!node)
+		return;
+
+	if (node->type == NODE_COMMAND)
+	{
+		ft_bzero(&cmd, sizeof(t_cmd));
+		cmd.args = node->args;
+
+		if (is_builtin(&cmd))
+			shell->exit_code = run_builtin(*env_list, &cmd, shell);
+		else
+			shell->exit_code = execute_command(*env_list, &cmd, shell);
+	}
+	else if (node->type == NODE_PIPE)
+	{
+		pipe_execute(node, env_list, shell);
+	}
+	else if (node->type == NODE_REDIR)
+	{
+		execute_ast(node->left, env_list, shell);
+	}
+}
+
+
+
+
