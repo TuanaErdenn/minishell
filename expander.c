@@ -26,10 +26,11 @@ char *expand_variable(const char *str, t_env *env_list, t_shell *shell)
 	i = 1;
 	while (str[i] && (ft_isalnum(str[i]) || str[i] == '_'))
 		i++;
-
 	key = ft_substr(str, 1, i - 1);
-	value = get_env_value(env_list, key);
-	free(key);
+    if (!key)
+       return (NULL);
+    value = get_env_value(env_list, key);
+    free(key);
 
 	if (!value)
 		return (ft_strdup(""));
@@ -59,13 +60,18 @@ char *expand_string_with_vars(const char *str, t_env *env_list, t_shell *shell)
 				int	start = i + 1;
 				while (str[start] && (ft_isalnum(str[start]) || str[start] == '_'))
 					start++;
-				char *key = ft_substr(str, i + 1, start - (i + 1));
-				char *val = get_env_value(env_list, key);
-				char *tmp = ft_strjoin(result, val ? val : "");
-				free(result);
-				result = tmp;
-				free(key);
-				i = start;
+                char *key = ft_substr(str, i + 1, start - (i + 1));
+                if (!key)
+                {
+                        free(result);
+                        return (NULL);
+                }
+                char *val = get_env_value(env_list, key);
+                char *tmp = ft_strjoin(result, val ? val : "");
+                free(result);
+                result = tmp;
+                free(key);
+                i = start;				
 			}
 		}
 		else

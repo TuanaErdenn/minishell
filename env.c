@@ -117,7 +117,7 @@ char *get_env_value(t_env *env_list, char *key)
 	t_env *temp;
 
 	if (!env_list)
-		return (""); // Boş string döndür
+		return (NULL); // Boş string döndür
 
 	temp = env_list;
 	while (temp)
@@ -126,5 +126,5 @@ char *get_env_value(t_env *env_list, char *key)
 			return (temp->value);
 		temp = temp->next;
 	}
-	return (""); // NULL değil, boş string döndürmek doğru
+	return (NULL); // NULL değil, boş string döndürmek doğru
 }

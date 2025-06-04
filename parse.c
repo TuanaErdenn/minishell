@@ -66,13 +66,22 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 
 		i = start;
 		int j = 0;
-		while (i < end && tokens[i]->type == T_WORD)
-		{
-			args[j] = ft_strdup(tokens[i]->value);
-			quotes[j] = tokens[i]->quote_type;
-			i++;
-			j++;
-		}
+        while (i < end && tokens[i]->type == T_WORD)
+        {
+            args[j] = ft_strdup(tokens[i]->value);
+            if (!args[j])
+            {
+                int k = 0;
+                while (k < j)
+                        free(args[k++]);
+                free(args);
+                free(quotes);
+                return NULL;
+            }
+            quotes[j] = tokens[i]->quote_type;
+            i++;
+            j++;
+        }
 		args[j] = NULL;
 
 		// 3. Komut node'u oluştur
@@ -119,7 +128,13 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 		redir_node->type = NODE_REDIR;
 		redir_node->redirect_type = redir_type;
 		redir_node->file = ft_strdup(tokens[i + 1]->value);
-		redir_node->file_quote = tokens[i + 1]->quote_type;
+        if (!redir_node->file)
+        {
+            free(redir_node);
+            free_ast(cmd_node);
+            return NULL;
+        }
+        redir_node->file_quote = tokens[i + 1]->quote_type;
 		redir_node->args = NULL;
 		redir_node->quote_types = NULL;
 		redir_node->left = cmd_node;

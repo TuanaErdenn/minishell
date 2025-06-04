@@ -155,13 +155,12 @@ static void	process_input(char *input, t_env *env_list, t_shell *shell)
 
 
 /* exit komutunu kontrol etme */
-static int	handle_exit(char *input, t_env *env_list)
+static int	handle_exit(char *input)
 {
 	if (ft_strcmp(input, "exit") == 0)
 	{
 		write(1, "exit\n", 5);
 		free(input);
-		free_env_list(env_list);
 		return (1);
 	}
 	return (0);
@@ -196,12 +195,13 @@ int	main(int argc, char **argv, char **envp)
 		if (*input)
 		{
 			add_history(input);
-			if (handle_exit(input, env_list))
+			if (handle_exit(input))
 				break ;
 			process_input(input, env_list, &shell);
 		}
 		free(input);
 	}
+	free_env_list(env_list);
 	return (shell.exit_code);
 }
 

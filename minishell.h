@@ -135,7 +135,7 @@ void	free_token(t_token *token);
 t_ast *parse_tokens(t_token **tokens);
 t_ast *parse_pipe(t_token **tokens, int pipe_index);
 t_ast *parse_command(t_token **tokens, int start, int end);
-t_ast *parse_redirection(t_token **tokens, int start, int end);
+//t_ast *parse_redirection(t_token **tokens, int start, int end);
 void free_ast(t_ast *node);
 void execute_ast(t_ast *node, t_env **env_list, t_shell *shell);
 
