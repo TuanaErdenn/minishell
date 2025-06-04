@@ -9,6 +9,7 @@
 # include <unistd.h>
 # include <readline/readline.h>  // readline fonksiyonu için 
 # include <readline/history.h>  // add_history için
+# include <sys/wait.h> //waitpid için
 
 
 /* ==================== ENUM TİPLERİ ==================== */
@@ -147,6 +148,7 @@ int	add_update_env(t_env **env_list, char *key, char *value);
 int	execute_export(t_env **env_list, char **args);
 int	execute_unset(t_env **env_list, char **args);
 void add_env_node(t_env **env_list, t_env *new_node);
-
+void free_env_array(char **envp);
+char *find_exec(char *command, t_env *env_list);
 
 #endif

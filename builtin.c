@@ -233,17 +233,132 @@ int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell)
 		return (execute_unset(&env_list, cmd->args));
 	return (0);
 }
+// Environment listesini execve için array'e çevir
+char **env_to_array(t_env *env_list)
+{
+    if (!env_list)
+        return (NULL);
+    
+    // Environment sayısını hesapla
+    int count = 0;
+    t_env *current = env_list;
+    while (current)
+    {
+        count++;
+        current = current->next;
+    }
+    
+    // Array oluştur
+    char **envp = malloc(sizeof(char *) * (count + 1));
+    if (!envp)
+        return (NULL);
+    
+    current = env_list;
+    int i = 0;
+    
+    while (current && i < count)
+    {
+        // "KEY=VALUE" formatı
+        char *temp = ft_strjoin(current->key, "=");
+        if (!temp)
+        {
+            free_env_array(envp);
+            return (NULL);
+        }
+        
+        envp[i] = ft_strjoin(temp, current->value ? current->value : "");
+        free(temp);
+        
+        if (!envp[i])
+        {
+            free_env_array(envp);
+            return (NULL);
+        }
+        
+        current = current->next;
+        i++;
+    }
+    envp[i] = NULL;
+    return (envp);
+}
+int run_path(char *path, t_cmd *cmd, t_env *env_list, t_shell *shell)
+{
+    pid_t pid;
+    int status;
+    
+    pid = fork();
+    if (pid == -1)
+    {
+        perror("fork");
+        shell->exit_code = 1;
+        return (1);
+    }
+    
+    if (pid == 0)
+    {
+        // === CHILD PROCESS ===
+        
+        // Environment array'i hazırla
+        char **envp = env_to_array(env_list);
+        if (!envp)
+            exit(1);
+        
+        // Komutu çalıştır
+        execve(path, cmd->args, envp);
+        
+        // execve başarısız olursa buraya gelir
+        perror("execve");
+        free_env_array(envp);
+        exit(126); // execution error
+    }
+    else
+    {
+        // === PARENT PROCESS ===
+        
+        // Child'ın bitmesini bekle
+        waitpid(pid, &status, 0);
+        
+        // Exit code'u ayarla
+        if (WIFEXITED(status))
+        {
+            shell->exit_code = WEXITSTATUS(status);
+            return (WEXITSTATUS(status));
+        }
+        else if (WIFSIGNALED(status))
+        {
+            // Signal ile sonlandırıldıysa
+            shell->exit_code = 128 + WTERMSIG(status);
+            return (128 + WTERMSIG(status));
+        }
+        else
+        {
+            shell->exit_code = 1;
+            return (1);
+        }
+    }
+}
 
 int execute_command(t_env *env_list, t_cmd *cmd, t_shell *shell)
 {
+	char *path;
+	
+	// 1. Built-in kontrolü
 	if (is_builtin(cmd))
 		return (run_builtin(env_list, cmd, shell));
+	
+	// 2. Harici komut için PATH'te ara
+	path = find_exec(cmd->args[0], env_list);
+	if (path)
+	{
+		int result = run_path(path, cmd, env_list, shell);
+		free(path);
+		return (result);
+	}
 	else
 	{
 		printf("minishell: %s: command not found\n", cmd->args[0]);
 		shell->exit_code = 127;
 		return (127);
-
-		TODO //bu kısımda hata kodları toplanmalı gereklide çağrılma.
 	}
 }
+

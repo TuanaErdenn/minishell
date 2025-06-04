@@ -1,5 +1,4 @@
 #include "minishell.h"
-
 /* Token türünü string olarak döner */
 const char	*get_token_type_str(int type)
 {
@@ -96,18 +95,7 @@ void	print_ast(t_ast *node, int level)
 }
 
 
-/* Çevre değişkenlerini yazdır (debug için) */
-void	print_env_list(t_env *env_list)
-{
-	t_env	*temp = env_list;
-	while (temp)
-	{
-		printf("%s=%s\n", temp->key, temp->value);
-		temp = temp->next;
-	}
-}
 
-#include "minishell.h"
 
 /* ... print_tokens, print_ast vs. aynı kalıyor ... */
 

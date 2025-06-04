@@ -22,6 +22,15 @@ void free_env_list(t_env *env_list)
         free(temp);
     }
 }
+
+void free_env_array(char **envp)
+{
+	int i = 0;
+	while (envp && envp[i])
+		free(envp[i++]);
+	free(envp);
+}
+
 /* Token dizisini temizleyen fonksiyon */
 void	free_token_array(t_token **tokens, int count)
 {
