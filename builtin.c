@@ -160,36 +160,48 @@ void print_with_expansion(t_env *env_list, char *str, t_shell *shell)
 
 int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell)
 {
-	int i = 1;
-	int newline = 1;
+    int i = 1;
+    int newline = 1;
+    
+    while (args[i] && is_n_flag(args[i]))
+    {
+        newline = 0;
+        i++;
+    }
+    
+    while (args[i])
+    {
+        // ✅ DÜZELTME: Quote tipine göre davran
+        if (cmd.args_quote_type && cmd.args_quote_type[i] == Q_SINGLE)
+        {
+            // Tek tırnak: literal yazdır, expansion yapma
+            printf("%s", args[i]);
+        }
+        else if (cmd.args_quote_type && cmd.args_quote_type[i] == Q_DOUBLE)
+        {
+            // Çift tırnak: tırnak karakterlerini kaldır
+            char *p = args[i];
+            while (*p)
+            {
+                if (*p != '"')
+                    printf("%c", *p);
+                p++;
+            }
+        }
+        else
+        {
+            // Tırnaksız: expansion ile yazdır
+            print_with_expansion(env_list, args[i], shell);
+        }
 
-	while (args[i] && is_n_flag(args[i]))
-	{
-		newline = 0;
-		i++;
-	}
-	while (args[i])
-	{
-		if (cmd.args_quote_type && cmd.args_quote_type[i] == Q_DOUBLE)
-		{
-			char *p = args[i];
-			while (*p)
-			{
-				if (*p != '"')
-					printf("%c", *p);
-				p++;
-			}
-		}
-		else
-			print_with_expansion(env_list, args[i], shell);
-
-		if (args[i + 1])
-			printf(" ");
-		i++;
-	}
-	if (newline)
-		printf("\n");
-	return (0);
+        if (args[i + 1])
+            printf(" "); // ✅ DÜZELTME: boşluk ekle
+        i++;
+    }
+    
+    if (newline)
+        printf("\n");
+    return (0);
 }
 
 int ft_env(t_env *env_list)

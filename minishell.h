@@ -10,8 +10,8 @@
 # include <readline/readline.h>  // readline fonksiyonu için 
 # include <readline/history.h>  // add_history için
 # include <sys/wait.h> //waitpid için
-
-
+#include <fcntl.h>
+#include <signal.h>
 /* ==================== ENUM TİPLERİ ==================== */
 
 /* Token türlerini belirtir */
@@ -118,8 +118,8 @@ void print_env(char **envp);
 int execute_command(t_env *env_list, t_cmd *cmd, t_shell *shell);
 int is_builtin(t_cmd *cmd);
 int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell);
-
-/* ==================== ENV FONKSİYONLARI ==================== */
+// Pipe execution function - NEW SIGNATURE
+int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_ast);/* ==================== ENV FONKSİYONLARI ==================== */
 char *get_env_value(t_env *env_list, char *key);
 t_env	*init_env_list(char **environ);
 void free_env_list(t_env *env_list);
@@ -135,15 +135,14 @@ void	free_token(t_token *token);
 t_ast *parse_tokens(t_token **tokens);
 t_ast *parse_pipe(t_token **tokens, int pipe_index);
 t_ast *parse_command(t_token **tokens, int start, int end);
-//t_ast *parse_redirection(t_token **tokens, int start, int end);
+t_ast *parse_redirection(t_token **tokens, int start, int end);
 void free_ast(t_ast *node);
 void execute_ast(t_ast *node, t_env **env_list, t_shell *shell);
 
 /*=========================== EXPANDER ==========================*/
 void expand_ast(t_ast *node, t_env *env_list, t_shell *shell);
 
-
-void pipe_execute(t_ast *node, t_env **env_list, t_shell *shell);
+char **env_to_array(t_env *env_list);
 int	add_update_env(t_env **env_list, char *key, char *value);
 int	execute_export(t_env **env_list, char **args);
 int	execute_unset(t_env **env_list, char **args);
@@ -151,4 +150,7 @@ void add_env_node(t_env **env_list, t_env *new_node);
 void free_env_array(char **envp);
 char *find_exec(char *command, t_env *env_list);
 
+/*redirect*/
+
+int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell);
 #endif

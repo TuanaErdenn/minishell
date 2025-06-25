@@ -1,6 +1,6 @@
 #include "minishell.h"
 /* Token türünü string olarak döner */
-const char	*get_token_type_str(int type)
+const char *get_token_type_str(int type)
 {
 	if (type == T_WORD)
 		return ("WORD");
@@ -20,13 +20,13 @@ const char	*get_token_type_str(int type)
 }
 
 /* Token dizisini yazdır */
-void	print_tokens(t_token **tokens)
+void print_tokens(t_token **tokens)
 {
-	int	i = 0;
+	int i = 0;
 	while (tokens[i])
 	{
 		printf("Token[%d]: '%s' (type: %s, quote: %d)\n",
-			i, tokens[i]->value, get_token_type_str(tokens[i]->type), tokens[i]->quote_type);
+			   i, tokens[i]->value, get_token_type_str(tokens[i]->type), tokens[i]->quote_type);
 		i++;
 	}
 	printf("-----------------\n\n");
@@ -34,13 +34,13 @@ void	print_tokens(t_token **tokens)
 
 /* AST ağacını yazdır */
 
-void	print_indent(int level)
+void print_indent(int level)
 {
 	while (level-- > 0)
 		printf("  ");
 }
 
-void	print_ast(t_ast *node, int level)
+void print_ast(t_ast *node, int level)
 {
 	if (!node)
 		return;
@@ -94,16 +94,11 @@ void	print_ast(t_ast *node, int level)
 	}
 }
 
-
-
-
-/* ... print_tokens, print_ast vs. aynı kalıyor ... */
-
-static int	check_quotes(char *input)
+static int check_quotes(char *input)
 {
-	int	in_single = 0;
-	int	in_double = 0;
-	int	i = 0;
+	int in_single = 0;
+	int in_double = 0;
+	int i = 0;
 
 	while (input[i])
 	{
@@ -122,55 +117,51 @@ static int	check_quotes(char *input)
 }
 
 /* Komut girişini işleme */
-static void	process_input(char *input, t_env *env_list, t_shell *shell)
+static void process_input(char *input, t_env *env_list, t_shell *shell)
 {
-	t_token		**tokens;
-	t_ast		*ast;
+	t_token **tokens = NULL;
+	t_ast *ast = NULL;
 
+	if (!input || !*input)
+		return;
 	if (!check_quotes(input))
 		return;
-
 	tokens = tokenize(input);
 	if (!tokens)
 		return;
-
-	printf("\n--- TOKENS ---\n");
-	print_tokens(tokens);
-
 	ast = parse_tokens(tokens);
-	expand_ast(ast , env_list, shell);
+	freetokens(tokens);
+	tokens = NULL;
+	if (!ast)
+		return;
+	expand_ast(ast, env_list, shell);
+	//print_ast(ast, 0); // AST'yi yazdırma
 	execute_ast(ast, &env_list, shell);
-
 	if (ast)
 	{
-		printf("\n--- AST YAPISI ---\n");
-		print_ast(ast, 0);
 		free_ast(ast);
+		ast = NULL;
 	}
-	else
-		printf("Parser: AST oluşturulamadı!\n");
-
-	freetokens(tokens);
 }
 
-
-/* exit komutunu kontrol etme */
-static int	handle_exit(char *input)
+static int handle_exit(char *input, t_env *env_list)
 {
+	(void)env_list; // Suppress unused parameter warning
 	if (ft_strcmp(input, "exit") == 0)
 	{
 		write(1, "exit\n", 5);
 		free(input);
+		// Don't free env_list here - it will be freed in main()
 		return (1);
 	}
 	return (0);
 }
 
-int	main(int argc, char **argv, char **envp)
+int main(int argc, char **argv, char **envp)
 {
-	char		*input;
-	t_env		*env_list;
-	t_shell		shell;
+	char *input;
+	t_env *env_list;
+	t_shell shell;
 
 	(void)argv;
 	if (argc != 1)
@@ -186,17 +177,16 @@ int	main(int argc, char **argv, char **envp)
 	}
 	shell.exit_code = 0;
 	shell.envp = envp;
-
 	while (1)
 	{
 		input = readline("🐣🌞 minishell ");
 		if (!input)
-			break ;
+			break;
 		if (*input)
 		{
 			add_history(input);
-			if (handle_exit(input))
-				break ;
+			if (handle_exit(input, env_list))
+				break;
 			process_input(input, env_list, &shell);
 		}
 		free(input);
@@ -204,4 +194,3 @@ int	main(int argc, char **argv, char **envp)
 	free_env_list(env_list);
 	return (shell.exit_code);
 }
-

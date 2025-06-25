@@ -1,3 +1,16 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   token.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/06/25 15:28:00 by zyilmaz           #+#    #+#             */
+/*   Updated: 2025/06/25 15:28:01 by zyilmaz          ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+
 #include "minishell.h"
 
 /* Token temizleme fonksiyonu */
@@ -287,11 +300,10 @@ int fill_tokens(char *input, t_token **tokens)
 /* Tokenize ana fonksiyonu */
 t_token **tokenize(char *input)
 {
-	t_token **tokens = NULL;
-	int token_count = 0;
+	t_token **tokens;
+	int token_count;
 
 	token_count = count_tokens(input);
-
 	tokens = (t_token **)malloc(sizeof(t_token *) * (token_count + 1));
 	if (!tokens)
 		return NULL;
