@@ -1,9 +1,9 @@
 NAME = minishell
 
 CC = cc
-CFLAGS = -Wall -Wextra -Werror -g
+CFLAGS = -Wall -Wextra -Werror #-fsanitize=address -g3
 
-SRCS = main.c parse.c token.c builtin.c free.c env.c expander.c redir.c export.c unset.c pipe.c find.c
+SRCS = main.c parse.c token.c builtin.c free.c env.c expander.c redir.c export.c unset.c pipe.c find.c signal.c exit.c
 
 OBJS = $(SRCS:.c=.o)
 
@@ -29,7 +29,7 @@ re: fclean all
 leaks:
 	@echo "Running walgrind..."
 	@valgrind --leak-check=full			\
-			--show-leak-kinds=all				\
+			--show-leak-kinds=all		\
 			--track-origins=yes			\
 			--track-fds=yes				\
 			--verbose 					\

@@ -14,10 +14,21 @@ char *ft_strncpy(char *dest, const char *src, size_t n)
 	return (dest);
 }
 
-/* PWD builtin */
-int ft_pwd(void)
+/* PWD builtin - uses PWD environment variable if available (like bash) */
+int ft_pwd(t_env *env_list)
 {
+	char *pwd_env;
 	char cwd[1024];
+	
+	// First try to get PWD from environment (logical path)
+	pwd_env = get_env_value(env_list, "PWD");
+	if (pwd_env && pwd_env[0] != '\0')
+	{
+		printf("%s\n", pwd_env);
+		return (0);
+	}
+	
+	// Fallback to getcwd (physical path)
 	if (getcwd(cwd, sizeof(cwd)) != NULL)
 	{
 		printf("%s\n", cwd);
@@ -168,39 +179,22 @@ int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell)
         newline = 0;
         i++;
     }
-    
+	i = 1;
+    (void)env_list;
+	(void)shell;
+	(void)cmd;
     while (args[i])
     {
-        // ✅ DÜZELTME: Quote tipine göre davran
-        if (cmd.args_quote_type && cmd.args_quote_type[i] == Q_SINGLE)
-        {
-            // Tek tırnak: literal yazdır, expansion yapma
-            printf("%s", args[i]);
-        }
-        else if (cmd.args_quote_type && cmd.args_quote_type[i] == Q_DOUBLE)
-        {
-            // Çift tırnak: tırnak karakterlerini kaldır
-            char *p = args[i];
-            while (*p)
-            {
-                if (*p != '"')
-                    printf("%c", *p);
-                p++;
-            }
-        }
-        else
-        {
-            // Tırnaksız: expansion ile yazdır
-            print_with_expansion(env_list, args[i], shell);
-        }
+
+		ft_putstr_fd(args[i], 1);
 
         if (args[i + 1])
-            printf(" "); // ✅ DÜZELTME: boşluk ekle
+            ft_putstr_fd(" ", 1); // ✅ DÜZELTME: boşluk ekle
         i++;
     }
     
     if (newline)
-        printf("\n");
+        ft_putstr_fd("\n", 1);
     return (0);
 }
 
@@ -234,7 +228,7 @@ int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell)
 	if (!ft_strcmp(cmd->args[0], "echo"))
 		return (ft_echo(env_list, cmd->args, *cmd, shell));
 	else if (!ft_strcmp(cmd->args[0], "pwd"))
-		return (ft_pwd());
+		return (ft_pwd(env_list));
 	else if (!ft_strcmp(cmd->args[0], "env"))
 		return (ft_env(env_list));
 	else if (!ft_strcmp(cmd->args[0], "cd"))
@@ -243,8 +237,11 @@ int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell)
 		return (execute_export(&env_list, cmd->args));
 	else if (!ft_strcmp(cmd->args[0], "unset"))
 		return (execute_unset(&env_list, cmd->args));
+	else if (!ft_strcmp(cmd->args[0], "exit"))
+		return (builtin_exit(cmd->args, shell));
 	return (0);
 }
+
 // Environment listesini execve için array'e çevir
 char **env_to_array(t_env *env_list)
 {
@@ -293,6 +290,7 @@ char **env_to_array(t_env *env_list)
     envp[i] = NULL;
     return (envp);
 }
+
 int run_path(char *path, t_cmd *cmd, t_env *env_list, t_shell *shell)
 {
     pid_t pid;
@@ -309,7 +307,8 @@ int run_path(char *path, t_cmd *cmd, t_env *env_list, t_shell *shell)
     if (pid == 0)
     {
         // === CHILD PROCESS ===
-        
+        set_signal_mode(SIGMODE_CHILD, NULL);  // ✅ SİNYAL AYARI BURADA
+
         // Environment array'i hazırla
         char **envp = env_to_array(env_list);
         if (!envp)
@@ -350,15 +349,50 @@ int run_path(char *path, t_cmd *cmd, t_env *env_list, t_shell *shell)
     }
 }
 
+/* ✅ FIXED: Proper error handling for command execution */
 int execute_command(t_env *env_list, t_cmd *cmd, t_shell *shell)
 {
 	char *path;
+	
+	// 0. Boş komut kontrolü
+	if (!cmd || !cmd->args || !cmd->args[0] || !*(cmd->args[0]))
+	{
+		// Boş komut - hiçbir şey yapma, sessizce geç
+		shell->exit_code = 0;
+		return (0);
+	}
 	
 	// 1. Built-in kontrolü
 	if (is_builtin(cmd))
 		return (run_builtin(env_list, cmd, shell));
 	
-	// 2. Harici komut için PATH'te ara
+	// 2. Check if it's a path (contains '/')
+	if (ft_strchr(cmd->args[0], '/'))
+	{
+		// It's a path - check if file exists and is executable
+		if (access(cmd->args[0], F_OK) != 0)
+		{
+			// File doesn't exist
+			fprintf(stderr, "minishell: %s: No such file or directory\n", cmd->args[0]);
+			shell->exit_code = 127;
+			return (127);
+		}
+		else if (access(cmd->args[0], X_OK) != 0)
+		{
+			// File exists but not executable
+			fprintf(stderr, "minishell: %s: Permission denied\n", cmd->args[0]);
+			shell->exit_code = 126;
+			return (126);
+		}
+		else
+		{
+			// File exists and is executable
+			int result = run_path(cmd->args[0], cmd, env_list, shell);
+			return (result);
+		}
+	}
+	
+	// 3. Search in PATH
 	path = find_exec(cmd->args[0], env_list);
 	if (path)
 	{
@@ -368,9 +402,9 @@ int execute_command(t_env *env_list, t_cmd *cmd, t_shell *shell)
 	}
 	else
 	{
-		printf("minishell: %s: command not found\n", cmd->args[0]);
+		// ✅ FIXED: Print to stderr instead of stdout
+		fprintf(stderr, "minishell: %s: command not found\n", cmd->args[0]);
 		shell->exit_code = 127;
 		return (127);
 	}
 }
-

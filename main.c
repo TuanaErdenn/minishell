@@ -177,11 +177,20 @@ int main(int argc, char **argv, char **envp)
 	}
 	shell.exit_code = 0;
 	shell.envp = envp;
+	shell.saved_stdin = -1;     // Initialize to -1 (not saved)
+	shell.saved_stdout = -1;    // Initialize to -1 (not saved)
+	shell.heredoc_counter = 0;  // Initialize heredoc counter
+	
 	while (1)
 	{
+		set_signal_mode(SIGMODE_PROMPT, &shell); // ← Ctrl+C için PROMPT sinyalleri burada ayarlanır
+
 		input = readline("🐣🌞 minishell ");
 		if (!input)
+		{
+			write(1, "exit\n", 5); // ✅ Ctrl+D için mesaj
 			break;
+		}
 		if (*input)
 		{
 			add_history(input);

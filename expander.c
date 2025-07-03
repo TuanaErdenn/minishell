@@ -120,12 +120,37 @@ char *expand_string_with_vars(const char *str, t_env *env_list, t_shell *shell)
     return (result);
 }
 
-/* Args array'ini expand eder - sadece gerektiğinde */
+/* ✅ FIXED: Check if an argument should be removed after expansion */
+static int should_remove_arg(const char *original, const char *expanded, t_quote_type quote_type)
+{
+    // If argument was quoted, never remove it (even if it becomes empty)
+    if (quote_type != Q_NONE)
+        return 0;
+    
+    // If original contained only a variable reference that expanded to empty, remove it
+    if (original && original[0] == '$' && expanded && expanded[0] == '\0')
+    {
+        // Check if it's a pure variable reference (no other characters)
+        int i = 1;
+        while (original[i] && (ft_isalnum(original[i]) || original[i] == '_'))
+            i++;
+        
+        // If we reached the end, it was a pure variable reference
+        if (original[i] == '\0')
+            return 1;
+    }
+    
+    return 0;
+}
+
+/* ✅ FIXED: Args array expansion with empty argument removal */
 char **expand_args(char **args, t_quote_type *quote_types, t_env *env_list, t_shell *shell)
 {
     int i, count;
     int needs_expansion = 0;
     char **new_args;
+    char **temp_args;
+    int new_count = 0;
 
     if (!args)
         return (NULL);
@@ -153,46 +178,87 @@ char **expand_args(char **args, t_quote_type *quote_types, t_env *env_list, t_sh
     if (!needs_expansion)
         return (NULL);
     
-    // Yeni array oluştur
-    new_args = malloc(sizeof(char *) * (count + 1));
-    if (!new_args)
+    // Geçici array oluştur (expansion'dan sonra bazı argümanlar kaldırılabilir)
+    temp_args = malloc(sizeof(char *) * (count + 1));
+    if (!temp_args)
         return (NULL);
     
     // Her argümanı işle
     i = 0;
     while (i < count && args[i])
     {
+        char *expanded = NULL;
+        
         if (quote_types && quote_types[i] == Q_SINGLE)
         {
             // Tek tırnak: literal kopyala, expansion yapma
-            new_args[i] = ft_strdup(args[i]);
+            expanded = ft_strdup(args[i]);
         }
         else if (ft_strchr(args[i], '$'))
         {
             // $ var ve tek tırnak değil: expansion yap
-            new_args[i] = expand_string_with_vars(args[i], env_list, shell);
+            expanded = expand_string_with_vars(args[i], env_list, shell);
         }
         else
         {
             // $ yok: direkt kopyala
-            new_args[i] = ft_strdup(args[i]);
+            expanded = ft_strdup(args[i]);
         }
         
-        if (!new_args[i])
+        if (!expanded)
         {
             // Hata durumunda temizlik
-            while (--i >= 0)
-                free(new_args[i]);
-            free(new_args);
+            while (--new_count >= 0)
+                free(temp_args[new_count]);
+            free(temp_args);
             return (NULL);
         }
+        
+        // ✅ CRITICAL: Check if this argument should be removed
+        if (should_remove_arg(args[i], expanded, quote_types ? quote_types[i] : Q_NONE))
+        {
+            // This argument expanded to empty and should be removed
+            free(expanded);
+        }
+        else
+        {
+            // Keep this argument
+            temp_args[new_count] = expanded;
+            new_count++;
+        }
+        
         i++;
     }
-    new_args[i] = NULL;
+    
+    // ✅ EDGE CASE: If all arguments were removed, return empty array with just NULL
+    if (new_count == 0)
+    {
+        temp_args[0] = NULL;
+        return temp_args;
+    }
+    
+    // Resize array to actual size
+    new_args = malloc(sizeof(char *) * (new_count + 1));
+    if (!new_args)
+    {
+        while (--new_count >= 0)
+            free(temp_args[new_count]);
+        free(temp_args);
+        return (NULL);
+    }
+    
+    // Copy non-empty arguments
+    for (i = 0; i < new_count; i++)
+    {
+        new_args[i] = temp_args[i];
+    }
+    new_args[new_count] = NULL;
+    
+    free(temp_args);
     return (new_args);
 }
 
-/* AST'yi özyinelemeli olarak expand eder */
+/* ✅ UPDATED: AST expansion with proper argument filtering */
 void expand_ast(t_ast *node, t_env *env_list, t_shell *shell)
 {
     if (!node)
@@ -202,12 +268,40 @@ void expand_ast(t_ast *node, t_env *env_list, t_shell *shell)
     if (node->type == NODE_COMMAND && node->args)
     {
         char **old_args = node->args;
+        t_quote_type *old_quotes = node->quote_types;
         char **expanded = expand_args(node->args, node->quote_types, env_list, shell);
         
         if (expanded != NULL)
         {
             // Expansion yapıldı, eski args'ları değiştir
             node->args = expanded;
+            
+            // ✅ CRITICAL: Update quote_types array to match new args
+            if (old_quotes && expanded && expanded[0])
+            {
+                // Count new args
+                int new_count = 0;
+                while (expanded[new_count])
+                    new_count++;
+                
+                // For simplicity, set all remaining args to Q_NONE
+                // (proper implementation would track which quotes remain)
+                t_quote_type *new_quotes = malloc(sizeof(t_quote_type) * new_count);
+                if (new_quotes)
+                {
+                    for (int i = 0; i < new_count; i++)
+                        new_quotes[i] = Q_NONE; // Reset quote types after expansion
+                    
+                    free(old_quotes);
+                    node->quote_types = new_quotes;
+                }
+            }
+            else if (old_quotes)
+            {
+                free(old_quotes);
+                node->quote_types = NULL;
+            }
+            
             free_str_array(old_args);
         }
         // expanded == NULL: expansion gerekmedi, orijinal args'lar korunur

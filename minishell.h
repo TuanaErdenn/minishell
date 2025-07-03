@@ -48,6 +48,7 @@ typedef enum e_redirect_type {
 }	t_redirect_type;
 
 
+
 /* ==================== TOKEN YAPISI ==================== */
 
 /* Lexing aşamasında oluşturulan token'ları temsil eder */
@@ -71,6 +72,22 @@ typedef struct s_ast {
 	t_quote_type    file_quote;      // Dosya isminin quote bilgisi (özellikle heredoc için önemli)
 	struct s_ast    *left;           // Sol alt düğüm
 	struct s_ast    *right;          // Sağ alt düğüm
+	
+	// ✅ NEW: Array-based redirection system
+	char **input_files;        // Input redirection dosyaları
+    char **output_files;       // Output redirection dosyaları  
+    char **append_files;       // Append redirection dosyaları
+    char **heredoc_delims;     // Heredoc delimiter'ları
+    
+    t_quote_type *input_quotes;         // Input dosyalarının quote durumu
+    t_quote_type *output_quotes;        // Output dosyalarının quote durumu
+    t_quote_type *append_quotes;        // Append dosyalarının quote durumu
+    t_quote_type *heredoc_quotes;       // Heredoc delimiter'larının quote durumu
+    
+    int input_count;
+    int output_count;
+    int append_count;
+    int heredoc_count;
 }	t_ast;
 
 /* ==================== KOMUT YAPISI (EXECUTION) ==================== */
@@ -90,13 +107,21 @@ typedef struct s_cmd {
 	char *heredoc_delim;
 } t_cmd;
 
-/* ==================== SHELL DURUM YAPISI ==================== */
 typedef struct t_shell
 {
 	int     exit_code;      // Son komutun exit kodu
 	char    **envp;         // Environment variables
+	
+	// ✅ NEW: Redirection için saved file descriptors (global değişken yerine)
+	int     saved_stdin;    // Original STDIN_FILENO backup
+	int     saved_stdout;   // Original STDOUT_FILENO backup
+	int     heredoc_counter; // Heredoc temp file unique counter
 } t_shell;
 
+/* ==================== UPDATED FUNCTION PROTOTYPES ==================== */
+
+// ✅ UPDATED: restore_redirections now takes shell parameter
+int restore_redirections(t_shell *shell);
 /* ==================== ENVIRONMENT YAPISI ==================== */
 typedef struct s_env
 {
@@ -105,21 +130,35 @@ typedef struct s_env
 	struct s_env *next;  // Listedeki sonraki düğüm
 } t_env;
 
+/* ==================== SİNYAL YÖNETİMİ ==================== */
+typedef enum e_sigmode
+{
+	SIGMODE_PROMPT,
+	SIGMODE_HEREDOC,
+	SIGMODE_CHILD
+}	t_sigmode;
+
+void	set_signal_mode(t_sigmode mode, t_shell *shell);
+
+int	builtin_exit(char **args, t_shell *shell);
+
+
 
 /* ==================== BUILTIN VE GENEL FONKSİYONLAR ==================== */
-int ft_pwd(void);
+int ft_pwd(t_env *env_list);  // ✅ UPDATED: now takes env_list parameter
 int ft_strcmp(const char *s1, const char *s2);
 int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell);
 int ft_env(t_env *env_list);
 int ft_cd(t_env *env_list, char **args);
 // builtin.c dosyasının başına ekleyin
 void print_with_expansion(t_env *env_list, char *str, t_shell *shell);
-void print_env(char **envp);
 int execute_command(t_env *env_list, t_cmd *cmd, t_shell *shell);
 int is_builtin(t_cmd *cmd);
 int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell);
 // Pipe execution function - NEW SIGNATURE
-int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_ast);/* ==================== ENV FONKSİYONLARI ==================== */
+int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_ast);
+
+/* ==================== ENV FONKSİYONLARI ==================== */
 char *get_env_value(t_env *env_list, char *key);
 t_env	*init_env_list(char **environ);
 void free_env_list(t_env *env_list);
@@ -135,7 +174,6 @@ void	free_token(t_token *token);
 t_ast *parse_tokens(t_token **tokens);
 t_ast *parse_pipe(t_token **tokens, int pipe_index);
 t_ast *parse_command(t_token **tokens, int start, int end);
-t_ast *parse_redirection(t_token **tokens, int start, int end);
 void free_ast(t_ast *node);
 void execute_ast(t_ast *node, t_env **env_list, t_shell *shell);
 
@@ -150,7 +188,12 @@ void add_env_node(t_env **env_list, t_env *new_node);
 void free_env_array(char **envp);
 char *find_exec(char *command, t_env *env_list);
 
-/*redirect*/
-
+/*===================== REDIRECTION FONKSİYONLARI ======================*/
+char *expand_string_with_vars(const char *str, t_env *env_list, t_shell *shell);
+int redir_in(t_ast *redir_node, t_env **env_list, t_shell *shell);
 int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell);
+
+// ✅ NEW: Array-based redirection functions
+int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell);
+#include <sys/stat.h>
 #endif

@@ -1,4 +1,3 @@
-
 #include "minishell.h"
 // String array'ini temizle
 void free_string_array(char **arr)
