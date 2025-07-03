@@ -181,35 +181,37 @@ t_ast *parse_pipe(t_token **tokens, int pipe_index)
 }
 
 /* Helper function to add redirection to arrays */
-static int add_redirection(char ***files, t_quote_type **quotes, int *count, 
-                          const char *filename, t_quote_type quote_type)
+int add_redirection(char ***files, t_quote_type **quotes, int *count, 
+                    const char *filename, t_quote_type quote_type)
 {
 	char **new_files;
 	t_quote_type *new_quotes;
 
-	// Realloc arrays
-	new_files = realloc(*files, sizeof(char*) * (*count + 1));
+	// +2: biri yeni eleman, biri NULL sonlandırma için
+	new_files = realloc(*files, sizeof(char *) * (*count + 2));
 	new_quotes = realloc(*quotes, sizeof(t_quote_type) * (*count + 1));
-	
+
 	if (!new_files || !new_quotes)
 	{
 		free(new_files);
 		free(new_quotes);
 		return 0;
 	}
-	
+
 	*files = new_files;
 	*quotes = new_quotes;
-	
-	// Add new entry
+
 	(*files)[*count] = ft_strdup(filename);
 	if (!(*files)[*count])
 		return 0;
-		
+
 	(*quotes)[*count] = quote_type;
 	(*count)++;
+
+	(*files)[*count] = NULL;  // ✅ NULL SONLANDIRMA
 	return 1;
 }
+
 
 /* ✅ FIXED: Bash-compliant command parsing - arguments can appear anywhere */
 t_ast *parse_command(t_token **tokens, int start, int end)
@@ -401,6 +403,18 @@ t_ast *parse_command(t_token **tokens, int start, int end)
 		cmd_node->args = args;
 		cmd_node->quote_types = quotes;
 	}
+	else
+	{
+		cmd_node->args = malloc(sizeof(char *) * 1);
+		if (!cmd_node->args)
+		{
+			free_ast(cmd_node);
+			return NULL;
+		}
+		cmd_node->args[0] = NULL;
+		cmd_node->quote_types = NULL;
+	}
+
 
 	return cmd_node;
 }

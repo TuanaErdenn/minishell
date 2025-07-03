@@ -1,7 +1,7 @@
 NAME = minishell
 
 CC = cc
-CFLAGS = -Wall -Wextra -Werror #-fsanitize=address -g3
+CFLAGS = -Wall -Wextra -Werror -g #-fsanitize=address -g3
 
 SRCS = main.c parse.c token.c builtin.c free.c env.c expander.c redir.c export.c unset.c pipe.c find.c signal.c exit.c
 
