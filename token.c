@@ -17,7 +17,24 @@ void freetokens(t_token **tokens)
 	}
 	free(tokens);
 }
-
+const char	*get_token_type_str(int type)
+{
+	if (type == T_WORD)
+		return ("WORD");
+	if (type == T_PIPE)
+		return ("PIPE");
+	if (type == T_INPUT)
+		return ("INPUT");
+	if (type == T_OUTPUT)
+		return ("OUTPUT");
+	if (type == T_APPEND)
+		return ("APPEND");
+	if (type == T_HEREDOC)
+		return ("HEREDOC");
+	if (type == T_INVALID)
+		return ("INVALID");
+	return ("UNKNOWN");
+}
 /* Bir karakterin boşluk olup olmadığını kontrol etme */
 int is_space(char c)
 {
@@ -254,7 +271,238 @@ int create_special_token(char *input, int i, t_token **tokens, int *token_index)
 }
 
 /* Enhanced word token creation - handles adjacent quotes with proper quote type */
-int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_index)
+// ...existing code...
+
+/* Enhanced word token creation with variable expansion */
+int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_index, t_env *env_list, t_shell *shell)
+{
+    int start = i;
+    char *result = NULL;
+    char *temp_result = NULL;
+    int quote_type = Q_NONE;
+    int single_quote_count = 0;
+    int double_quote_count = 0;
+
+    // Önce tüm token'ı tara ve quote tipini belirle
+    int temp_i = i;
+    while (input[temp_i] && !is_space(input[temp_i]) && 
+           input[temp_i] != '|' && input[temp_i] != '<' && input[temp_i] != '>')
+    {
+        if (input[temp_i] == '\'')
+        {
+            single_quote_count++;
+            // Tırnak içini atla
+            temp_i++; // Açılış tırnağını atla
+            while (input[temp_i] && input[temp_i] != '\'')
+                temp_i++;
+            if (input[temp_i])
+                temp_i++; // Kapanış tırnağını atla
+        }
+        else if (input[temp_i] == '\"')
+        {
+            double_quote_count++;
+            // Tırnak içini atla
+            temp_i++; // Açılış tırnağını atla
+            while (input[temp_i] && input[temp_i] != '\"')
+                temp_i++;
+            if (input[temp_i])
+                temp_i++; // Kapanış tırnağını atla
+        }
+        else
+        {
+            temp_i++;
+        }
+    }
+
+    // Quote tipini belirle
+    if (single_quote_count > 0 && double_quote_count == 0)
+        quote_type = Q_SINGLE;
+    else if (double_quote_count > 0 && single_quote_count == 0)
+        quote_type = Q_DOUBLE;
+    else if (single_quote_count > 0 || double_quote_count > 0)
+        quote_type = Q_DOUBLE; // Karışık durumda çift tırnak davranışı
+
+    // Token uzunluğunu ayarla
+    i = temp_i;
+
+    // Token içeriğini segment by segment işle
+    result = ft_strdup(""); // Boş string ile başla
+    if (!result)
+        return (-1);
+
+    int j = start;
+    while (j < i)
+    {
+        if (input[j] == '\'' || input[j] == '\"')
+        {
+            char quote = input[j];
+            j++; // Açılış tırnağını atla
+            int quote_start = j;
+            while (j < i && input[j] != quote)
+                j++;
+            
+            if (j > quote_start)
+            {
+                char *quoted_content = ft_substr(input, quote_start, j - quote_start);
+                if (quoted_content)
+                {
+                    // ✅ CRITICAL: Tek tırnak değilse expansion yap
+                    if (quote != '\'' && ft_strchr(quoted_content, '$'))
+                    {
+                        char *expanded = expand_string_with_vars(quoted_content, env_list, shell);
+                        if (expanded)
+                        {
+                            temp_result = ft_strjoin(result, expanded);
+                            free(expanded);
+                        }
+                        else
+                        {
+                            temp_result = ft_strjoin(result, quoted_content);
+                        }
+                    }
+                    else
+                    {
+                        temp_result = ft_strjoin(result, quoted_content);
+                    }
+                    
+                    free(result);
+                    free(quoted_content);
+                    if (!temp_result)
+                        return (-1);
+                    result = temp_result;
+                }
+            }
+            if (j < i && input[j] == quote)
+                j++; // Kapanış tırnağını atla
+        }
+        else
+        {
+            // Normal karakterleri topla (tırnaklar dışında)
+            int unquoted_start = j;
+            while (j < i && input[j] != '\'' && input[j] != '\"')
+                j++;
+                
+            if (j > unquoted_start)
+            {
+                char *unquoted_content = ft_substr(input, unquoted_start, j - unquoted_start);
+                if (unquoted_content)
+                {
+                    // ✅ EXPANSION: Tırnak dışı $ varsa expand et
+                    if (ft_strchr(unquoted_content, '$'))
+                    {
+                        char *expanded = expand_string_with_vars(unquoted_content, env_list, shell);
+                        if (expanded)
+                        {
+                            temp_result = ft_strjoin(result, expanded);
+                            free(expanded);
+                        }
+                        else
+                        {
+                            temp_result = ft_strjoin(result, unquoted_content);
+                        }
+                    }
+                    else
+                    {
+                        temp_result = ft_strjoin(result, unquoted_content);
+                    }
+                    
+                    free(result);
+                    free(unquoted_content);
+                    if (!temp_result)
+                        return (-1);
+                    result = temp_result;
+                }
+            }
+        }
+    }
+
+    // ✅ CRITICAL: Eğer token tamamen boş ise, token oluşturmayalım
+    if (result && ft_strlen(result) > 0)
+    {
+        tokens[*token_index] = create_token_with_quote(result, T_WORD, quote_type);
+        if (!tokens[*token_index])
+        {
+            free(result);
+            return (-1);
+        }
+        (*token_index)++;
+    }
+    // Boş token durumunda token_index artırılmaz, böylece token atlanır
+    
+    free(result);
+    return i;
+}
+
+// ...existing code...
+
+/* Normal kelime token oluştur */
+int create_word_token(char *input, int i, t_token **tokens, int *token_index)
+{
+	int start = i;
+
+	while (input[i] &&
+		   !is_space(input[i]) && input[i] != '|' 
+		   && input[i] != '<' && input[i] != '>' &&
+		   input[i] != '\'' && input[i] != '\"')
+	{
+		i++;
+	}
+
+	int len = i - start;
+	char *value = ft_substr(input, start, len);
+	if (!value)
+		return -1;
+
+	tokens[*token_index] = create_token(value, T_WORD); // quote_type = 0 (no quote)
+	free(value);
+
+	if (!tokens[*token_index])
+		return -1;
+
+	(*token_index)++;
+	return i;
+}
+
+int fill_tokens_enhanced_with_expansion(char *input, t_token **tokens, t_env *env_list, t_shell *shell)
+{
+    int i = 0;
+    int token_index = 0;
+
+    while (input[i])
+    {
+        i = skip_spaces(input, i);
+        if (!input[i])
+            break;
+
+        int result = -1;
+        
+        if (input[i] == '|' || input[i] == '<' || input[i] == '>')
+        {
+            result = create_special_token(input, i, tokens, &token_index);
+        }
+        else
+        {
+            // Enhanced word token handling with expansion
+            result = create_word_token_enhanced(input, i, tokens, &token_index, env_list, shell);
+        }
+
+        if (result == -1)
+        {
+            tokens[token_index] = NULL;
+            return 0;
+        }
+        
+        // ✅ CRITICAL: Eğer token oluşturulmadıysa (boş expansion), devam et
+        // Bu durumda token_index değişmez ve token atlanır
+        i = result;
+    }
+
+    tokens[token_index] = NULL;
+    return 1;
+}
+
+/* Enhanced word token creation - expansion olmadan */
+int create_word_token_enhanced_simple(char *input, int i, t_token **tokens, int *token_index)
 {
 	int start = i;
 	char *result = NULL;
@@ -308,7 +556,7 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
 	// Token uzunluğunu ayarla
 	i = temp_i;
 
-	// Eğer tırnak varsa, içeriği birleştir
+	// Token içeriğini oluştur (expansion yapmadan)
 	if (has_quotes)
 	{
 		result = ft_strdup(""); // Boş string ile başla
@@ -320,7 +568,6 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
 		{
 			if (input[j] == '\'' || input[j] == '\"')
 			{
-				// Tırnak içeriğini al
 				char quote = input[j];
 				j++; // Açılış tırnağını atla
 				int quote_start = j;
@@ -376,35 +623,7 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
 	return i;
 }
 
-/* Normal kelime token oluştur */
-int create_word_token(char *input, int i, t_token **tokens, int *token_index)
-{
-	int start = i;
-
-	while (input[i] &&
-		   !is_space(input[i]) && input[i] != '|' 
-		   && input[i] != '<' && input[i] != '>' &&
-		   input[i] != '\'' && input[i] != '\"')
-	{
-		i++;
-	}
-
-	int len = i - start;
-	char *value = ft_substr(input, start, len);
-	if (!value)
-		return -1;
-
-	tokens[*token_index] = create_token(value, T_WORD); // quote_type = 0 (no quote)
-	free(value);
-
-	if (!tokens[*token_index])
-		return -1;
-
-	(*token_index)++;
-	return i;
-}
-
-/* Enhanced token filling */
+/* Enhanced token filling - expansion olmadan */
 int fill_tokens_enhanced(char *input, t_token **tokens)
 {
 	int i = 0;
@@ -424,8 +643,8 @@ int fill_tokens_enhanced(char *input, t_token **tokens)
 		}
 		else
 		{
-			// Enhanced word token handling
-			result = create_word_token_enhanced(input, i, tokens, &token_index);
+			// Enhanced word token handling (expansion olmadan)
+			result = create_word_token_enhanced_simple(input, i, tokens, &token_index);
 		}
 
 		if (result == -1)
@@ -445,8 +664,28 @@ int fill_tokens(char *input, t_token **tokens)
 {
 	return fill_tokens_enhanced(input, tokens);
 }
+/* Tokenize ana fonksiyonu - expansion ile */
+t_token **tokenize_with_expansion(char *input, t_env *env_list, t_shell *shell)
+{
+    t_token **tokens;
+    int token_count;
 
-/* Tokenize ana fonksiyonu */
+    token_count = count_tokens(input);
+    tokens = (t_token **)malloc(sizeof(t_token *) * (token_count + 1));
+    if (!tokens)
+        return NULL;
+
+    if (!fill_tokens_enhanced_with_expansion(input, tokens, env_list, shell))
+    {
+        freetokens(tokens);
+        return NULL;
+    }
+
+    tokens[token_count] = NULL;
+    return tokens;
+}
+
+/* Normal tokenize fonksiyonu - expansion olmadan */
 t_token **tokenize(char *input)
 {
 	t_token **tokens;

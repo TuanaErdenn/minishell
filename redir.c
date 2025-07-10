@@ -1,6 +1,7 @@
-/* Fixed redir.c - NO GLOBAL VARIABLES */
+/* FIXED redir.c - Bash-compliant redirection behavior with multiple heredoc support */
 #include "minishell.h"
 #include <sys/stat.h>
+#include <errno.h>
 
 /* Helper function to setup input redirection */
 static int setup_input_redirection(const char *filename, t_shell *shell)
@@ -113,26 +114,48 @@ static int setup_append_redirection(const char *filename, t_shell *shell)
     return 0;
 }
 
-/* Helper function to setup heredoc */
-static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env **env_list, t_shell *shell)
+/* ✅ FIXED: Multiple heredoc support - bash-compliant behavior */
+static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env **env_list, t_shell *shell, char **all_delimiters, int delimiter_count)
 {
+    (void)delimiter; // Suppress unused parameter warning
     char *line;
     char *tmpfile;
     char *counter_str;
     char *expanded_line;
     int fd;
-    int should_expand = (quote_type != Q_SINGLE); // Single quote'da expansion yok
+    int should_expand = (quote_type != Q_SINGLE);
+    int original_stdin = -1;
+    int current_delimiter_index = 0;
     
-    // Create temporary file - use process PID to make it unique
-    pid_t pid = getpid();
-    counter_str = ft_itoa(pid + shell->heredoc_counter++);
-    if (!counter_str)
+    // ✅ ADD: Save original stdin
+    original_stdin = dup(STDIN_FILENO);
+    if (original_stdin == -1)
+    {
+        perror("dup stdin");
         return -1;
+    }
+    
+    // ✅ ADD: Set heredoc signal mode
+    set_signal_mode(SIGMODE_HEREDOC, shell);
+    shell->exit_code = 0;  // Reset exit code
+    
+    // ✅ FIXED: Create temporary file without getpid() - use only counter
+    counter_str = ft_itoa(shell->heredoc_counter++);
+    if (!counter_str)
+    {
+        close(original_stdin);
+        set_signal_mode(SIGMODE_PROMPT, shell);
+        return -1;
+    }
     
     tmpfile = ft_strjoin("/tmp/minishell_heredoc_", counter_str);
     free(counter_str);
     if (!tmpfile)
+    {
+        close(original_stdin);
+        set_signal_mode(SIGMODE_PROMPT, shell);
         return -1;
+    }
     
     // Create and write to temporary file
     fd = open(tmpfile, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -140,49 +163,106 @@ static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env *
     {
         perror("tmpfile open");
         free(tmpfile);
+        close(original_stdin);
+        set_signal_mode(SIGMODE_PROMPT, shell);
         return -1;
     }
     
-    // Read heredoc content
+    // ✅ MULTIPLE HEREDOC: Read heredoc content with multiple delimiter support
     while (1)
     {
         line = readline("> ");
         if (!line)
         {
-            printf("\nminishell: warning: here-document delimited by end-of-file (wanted `%s')\n", delimiter);
-            break;
+            // ✅ ENHANCED: Check if interrupted by signal
+            if (shell->exit_code == 130)
+            {
+                // Interrupted by Ctrl+C
+                close(fd);
+                unlink(tmpfile);
+                free(tmpfile);
+                
+                // ✅ CRITICAL: Restore stdin
+                if (dup2(original_stdin, STDIN_FILENO) == -1)
+                    perror("dup2 restore stdin");
+                close(original_stdin);
+                
+                set_signal_mode(SIGMODE_PROMPT, shell);
+                return -1;
+            }
+            else
+            {
+                // EOF reached normally - show warning for the LAST delimiter
+                printf("\nminishell: warning: here-document delimited by end-of-file (wanted `%s')\n", 
+                       all_delimiters[delimiter_count - 1]);
+                break;
+            }
         }
         
-        if (ft_strcmp(line, delimiter) == 0)
+        // ✅ CRITICAL: Check if line matches ANY delimiter from current position
+        int delimiter_found = -1;
+        for (int i = current_delimiter_index; i < delimiter_count; i++)
+        {
+            if (ft_strcmp(line, all_delimiters[i]) == 0)
+            {
+                delimiter_found = i;
+                break;
+            }
+        }
+        
+        if (delimiter_found != -1)
         {
             free(line);
-            break;
+            
+            if (delimiter_found == delimiter_count - 1)
+            {
+                // Last delimiter - stop reading
+                break;
+            }
+            else
+            {
+                // Found intermediate delimiter - skip to next
+                current_delimiter_index = delimiter_found + 1;
+                continue;
+            }
         }
         
-        // Variable expansion (if not single quoted)
-        if (should_expand)
+        // ✅ BASH BEHAVIOR: Only write to file if we're on the last delimiter
+        if (current_delimiter_index == delimiter_count - 1)
         {
-            expanded_line = expand_string_with_vars(line, *env_list, shell);
-            if (expanded_line)
+            // Variable expansion (if not single quoted)
+            if (should_expand)
             {
-                write(fd, expanded_line, ft_strlen(expanded_line));
-                free(expanded_line);
+                expanded_line = expand_string_with_vars(line, *env_list, shell);
+                if (expanded_line)
+                {
+                    write(fd, expanded_line, ft_strlen(expanded_line));
+                    free(expanded_line);
+                }
+                else
+                {
+                    write(fd, line, ft_strlen(line));
+                }
             }
             else
             {
                 write(fd, line, ft_strlen(line));
             }
+            write(fd, "\n", 1);
         }
-        else
-        {
-            write(fd, line, ft_strlen(line));
-        }
-        write(fd, "\n", 1);
         
         free(line);
     }
     
     close(fd);
+    
+    // ✅ CRITICAL: Restore stdin
+    if (dup2(original_stdin, STDIN_FILENO) == -1)
+        perror("dup2 restore stdin");
+    close(original_stdin);
+    
+    // ✅ CRITICAL: Restore signal mode
+    set_signal_mode(SIGMODE_PROMPT, shell);
     
     // Setup input redirection from temporary file
     int result = setup_input_redirection(tmpfile, shell);
@@ -194,229 +274,152 @@ static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env *
     return result;
 }
 
-/* ✅ SEGFAULT PREVENTION: Validate all redirections */
-static int validate_all_redirections_safe(t_ast *cmd)
-{
-    int i;
-    int test_fd;
-    
-    if (!cmd)
-        return -1;
-    
-    // ✅ CRITICAL: Check input files FIRST
-    i = 0;
-    while (i < cmd->input_count)
-    {
-        // ✅ TRIPLE CHECK: array bounds and null safety
-        if (!cmd->input_files || i >= cmd->input_count || 
-            !cmd->input_files[i] || cmd->input_files[i][0] == '\0')
-        {
-            i++;
-            continue;
-        }
-        
-        if (access(cmd->input_files[i], F_OK) != 0)
-        {
-            perror(cmd->input_files[i]);
-            return -1;  // File doesn't exist - FAIL IMMEDIATELY
-        }
-        if (access(cmd->input_files[i], R_OK) != 0)
-        {
-            perror(cmd->input_files[i]);
-            return -1;  // File exists but not readable - FAIL IMMEDIATELY
-        }
-        i++;
-    }
-    
-    // ✅ Check output files
-    i = 0;
-    while (i < cmd->output_count)
-    {
-        if (!cmd->output_files || i >= cmd->output_count || 
-            !cmd->output_files[i] || cmd->output_files[i][0] == '\0')
-        {
-            i++;
-            continue;
-        }
-        
-        if (access(cmd->output_files[i], F_OK) == 0)
-        {
-            if (access(cmd->output_files[i], W_OK) != 0)
-            {
-                perror(cmd->output_files[i]);
-                return -1;
-            }
-        }
-        else
-        {
-            test_fd = open(cmd->output_files[i], O_WRONLY | O_CREAT | O_EXCL, 0644);
-            if (test_fd == -1)
-            {
-                perror(cmd->output_files[i]);
-                return -1;
-            }
-            close(test_fd);
-        }
-        i++;
-    }
-    
-    // ✅ Check append files
-    i = 0;
-    while (i < cmd->append_count)
-    {
-        if (!cmd->append_files || i >= cmd->append_count || 
-            !cmd->append_files[i] || cmd->append_files[i][0] == '\0')
-        {
-            i++;
-            continue;
-        }
-        
-        if (access(cmd->append_files[i], F_OK) == 0)
-        {
-            if (access(cmd->append_files[i], W_OK) != 0)
-            {
-                perror(cmd->append_files[i]);
-                return -1;
-            }
-        }
-        else
-        {
-            test_fd = open(cmd->append_files[i], O_WRONLY | O_CREAT | O_EXCL, 0644);
-            if (test_fd == -1)
-            {
-                perror(cmd->append_files[i]);
-                return -1;
-            }
-            close(test_fd);
-        }
-        i++;
-    }
-    
-    return 0;  // All files are accessible
-}
-
-/* ✅ Main function to setup all redirections - NO GLOBALS */
+/* ✅ FIXED: setup_redirections - Handle multiple heredocs like bash */
 int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell)
 {
     if (!cmd || !shell)
         return -1;
+
+    // ✅ STEP 1: Collect all heredoc delimiters FIRST
+    char **heredoc_delimiters = NULL;
+    int heredoc_count = 0;
     
-    // ✅ CRITICAL: Validate ALL files first
-    if (validate_all_redirections_safe(cmd) != 0)
+    // Count heredocs
+    for (int i = 0; i < cmd->redir_count; i++)
     {
-        return -1;  // Validation failed
+        if (cmd->redirections[i].type == T_HEREDOC)
+            heredoc_count++;
     }
     
-    // ✅ STEP 1: Truncate all output files first (bash behavior)
-    int i = 0;
-    while (i < cmd->output_count)
+    // ✅ STEP 2: Process non-heredoc redirections for validation
+    for (int i = 0; i < cmd->redir_count; i++)
     {
-        if (!cmd->output_files || i >= cmd->output_count || 
-            !cmd->output_files[i] || cmd->output_files[i][0] == '\0')
-        {
-            i++;
-            continue;
-        }
+        t_redirection *redir = &cmd->redirections[i];
         
-        int fd = open(cmd->output_files[i], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd == -1)
+        if (redir->type == T_OUTPUT)
         {
-            perror(cmd->output_files[i]);
-            return -1;
-        }
-        close(fd);
-        i++;
-    }
-    
-    // ✅ STEP 2: Handle append files
-    i = 0;
-    while (i < cmd->append_count)
-    {
-        if (!cmd->append_files || i >= cmd->append_count || 
-            !cmd->append_files[i] || cmd->append_files[i][0] == '\0')
-        {
-            i++;
-            continue;
-        }
-        
-        // Check if already truncated by output redirection
-        int already_truncated = 0;
-        int j = 0;
-        while (j < cmd->output_count)
-        {
-            if (cmd->output_files && j < cmd->output_count && cmd->output_files[j] && 
-                ft_strcmp(cmd->append_files[i], cmd->output_files[j]) == 0)
-            {
-                already_truncated = 1;
-                break;
-            }
-            j++;
-        }
-        
-        if (!already_truncated)
-        {
-            int fd = open(cmd->append_files[i], O_WRONLY | O_CREAT, 0644);
+            // ✅ Try to create output file - FAIL IMMEDIATELY if error
+            int fd = open(redir->filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (fd == -1)
             {
-                perror(cmd->append_files[i]);
-                return -1;
+                perror(redir->filename);
+                return -1; // ✅ STOP immediately - no further redirections
             }
             close(fd);
         }
-        i++;
-    }
-    
-    // ✅ STEP 3: Setup input redirections (last one wins)
-    if (cmd->input_count > 0 && cmd->input_files)
-    {
-        int last_index = cmd->input_count - 1;
-        if (last_index >= 0 && last_index < cmd->input_count && 
-            cmd->input_files[last_index] && cmd->input_files[last_index][0] != '\0')
+        else if (redir->type == T_APPEND)
         {
-            if (setup_input_redirection(cmd->input_files[last_index], shell) != 0)
-                return -1;
+            // ✅ Try to create/open append file - FAIL IMMEDIATELY if error
+            int fd = open(redir->filename, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (fd == -1)
+            {
+                perror(redir->filename);
+                return -1; // ✅ STOP immediately - no further redirections
+            }
+            close(fd);
         }
+        else if (redir->type == T_INPUT)
+        {
+            // ✅ Check input file - FAIL IMMEDIATELY if error
+            if (access(redir->filename, F_OK) != 0)
+            {
+                perror(redir->filename);
+                return -1; // ✅ STOP immediately - no further redirections
+            }
+            else if (access(redir->filename, R_OK) != 0)
+            {
+                perror(redir->filename);
+                return -1; // ✅ STOP immediately - no further redirections
+            }
+        }
+        // ✅ DON'T process heredocs here - we'll handle them separately
     }
     
-    // ✅ STEP 4: Setup all heredocs (last one wins)
-    i = 0;
-    while (i < cmd->heredoc_count)
+    // ✅ STEP 3: If there are heredocs, process them ALL together
+    if (heredoc_count > 0)
     {
-        if (!cmd->heredoc_delims || i >= cmd->heredoc_count || 
-            !cmd->heredoc_delims[i] || cmd->heredoc_delims[i][0] == '\0')
+        // Collect all heredoc delimiters
+        heredoc_delimiters = malloc(sizeof(char*) * heredoc_count);
+        if (!heredoc_delimiters)
+            return -1;
+        
+        int idx = 0;
+        for (int i = 0; i < cmd->redir_count; i++)
         {
-            i++;
-            continue;
+            if (cmd->redirections[i].type == T_HEREDOC)
+            {
+                heredoc_delimiters[idx++] = cmd->redirections[i].filename;
+            }
         }
         
-        t_quote_type quote_type = Q_NONE;
-        if (cmd->heredoc_quotes && i < cmd->heredoc_count)
-            quote_type = cmd->heredoc_quotes[i];
-            
-        if (setup_heredoc(cmd->heredoc_delims[i], quote_type, env_list, shell) != 0)
+        // ✅ Process heredoc with ALL delimiters
+        // Find last heredoc's quote type
+        t_quote_type last_quote = Q_NONE;
+        for (int i = cmd->redir_count - 1; i >= 0; i--)
+        {
+            if (cmd->redirections[i].type == T_HEREDOC)
+            {
+                last_quote = cmd->redirections[i].quote_type;
+                break;
+            }
+        }
+        
+        if (setup_heredoc(heredoc_delimiters[heredoc_count-1], last_quote, 
+                         env_list, shell, heredoc_delimiters, heredoc_count) != 0)
+        {
+            free(heredoc_delimiters);
             return -1;
-        i++;
+        }
+        
+        free(heredoc_delimiters);
     }
     
-    // ✅ STEP 5: Redirect stdout to last output file
-    if (cmd->output_count > 0 && cmd->output_files)
+    // ✅ STEP 4: Setup actual I/O redirections
+    // Find last input redirection (excluding heredocs)
+    int last_input = -1;
+    for (int i = cmd->redir_count - 1; i >= 0; i--)
     {
-        int last_index = cmd->output_count - 1;
-        if (last_index >= 0 && last_index < cmd->output_count && 
-            cmd->output_files[last_index] && cmd->output_files[last_index][0] != '\0')
+        if (cmd->redirections[i].type == T_INPUT)
         {
-            if (setup_output_redirection(cmd->output_files[last_index], shell) != 0)
-                return -1;
+            last_input = i;
+            break;
         }
     }
-    // ✅ STEP 6: If no output, check for append redirections
-    else if (cmd->append_count > 0 && cmd->append_files)
+    
+    // ✅ CRITICAL FIX: Find last OUTPUT redirection (considering both OUTPUT and APPEND)
+    int last_output_redir = -1;
+    t_token_type last_output_type = T_WORD; // dummy init
+    
+    for (int i = cmd->redir_count - 1; i >= 0; i--)
     {
-        int last_index = cmd->append_count - 1;
-        if (last_index >= 0 && last_index < cmd->append_count && 
-            cmd->append_files[last_index] && cmd->append_files[last_index][0] != '\0')
+        if (cmd->redirections[i].type == T_OUTPUT || cmd->redirections[i].type == T_APPEND)
         {
-            if (setup_append_redirection(cmd->append_files[last_index], shell) != 0)
+            last_output_redir = i;
+            last_output_type = cmd->redirections[i].type;
+            break;
+        }
+    }
+    
+    // ✅ BASH BEHAVIOR: Setup stdin - heredoc overrides file input
+    if (heredoc_count == 0 && last_input != -1)
+    {
+        // Only setup file input if there's no heredoc
+        if (setup_input_redirection(cmd->redirections[last_input].filename, shell) != 0)
+            return -1;
+    }
+    // Note: If heredoc exists, stdin is already set up by setup_heredoc
+    
+    // ✅ CRITICAL FIX: Setup output redirection based on LAST output/append (not type preference)
+    if (last_output_redir != -1)
+    {
+        if (last_output_type == T_APPEND)
+        {
+            if (setup_append_redirection(cmd->redirections[last_output_redir].filename, shell) != 0)
+                return -1;
+        }
+        else // T_OUTPUT
+        {
+            if (setup_output_redirection(cmd->redirections[last_output_redir].filename, shell) != 0)
                 return -1;
         }
     }
@@ -424,7 +427,7 @@ int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell)
     return 0;
 }
 
-/* Function to restore original file descriptors - NO GLOBALS */
+/* Function to restore original file descriptors */
 int restore_redirections(t_shell *shell)
 {
     int result = 0;
@@ -458,14 +461,13 @@ int restore_redirections(t_shell *shell)
     
     return result;
 }
-/* ✅ MISSING: Add this to the end of redir.c */
 
 /* Legacy validation function for old redirection system */
 static int validate_all_redirections(t_ast *redir_node)
 {
     t_ast *current = redir_node;
     int fd;
-
+    
     while (current && current->type == NODE_REDIR)
     {
         if (!current->file)
@@ -531,7 +533,7 @@ static int validate_all_redirections(t_ast *redir_node)
     return 0;
 }
 
-/* ✅ MISSING: Legacy function for backward compatibility */
+/* ✅ FIXED: Legacy function - updated for multiple heredoc support */
 int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell)
 {
     if (!redir_node || !shell)
@@ -567,7 +569,9 @@ int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell)
     }
     else if (redir_node->redirect_type == REDIR_HEREDOC)
     {
-        if (setup_heredoc(redir_node->file, redir_node->file_quote, env_list, shell) != 0)
+        // ✅ FIXED: Legacy heredoc with single delimiter (for backward compatibility)
+        char *single_delimiter[] = {redir_node->file};
+        if (setup_heredoc(redir_node->file, redir_node->file_quote, env_list, shell, single_delimiter, 1) != 0)
             return 1;
     }
     
@@ -583,7 +587,7 @@ int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell)
         result = shell->exit_code;
     }
     
-    // ✅ UPDATED: Restore redirections with shell parameter
+    // Restore redirections
     restore_redirections(shell);
     
     return result;

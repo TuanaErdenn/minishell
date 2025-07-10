@@ -3,17 +3,17 @@
 #                                                         :::      ::::::::    #
 #    Makefile                                           :+:      :+:    :+:    #
 #                                                     +:+ +:+         +:+      #
-#    By: terden <terden@student.42.fr>              +#+  +:+       +#+         #
+#    By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2024/10/12 19:44:42 by terden            #+#    #+#              #
-#    Updated: 2024/10/27 17:56:06 by terden           ###   ########.fr        #
+#    Updated: 2025/07/02 20:03:49 by zyilmaz          ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 NAME = libft.a
 
-CC = gcc
-CFLAG = -Wall -Wextra -Werror 
+CC = cc
+CFLAG = -Wall -Wextra -Werror -g
 
 SRC = ft_isalpha.c \
       ft_isdigit.c \

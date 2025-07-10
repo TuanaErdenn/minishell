@@ -1,9 +1,9 @@
 #include "minishell.h"
 
-static t_shell	*shell_ref = NULL;
+static t_shell *shell_ref = NULL;
 
 // Ctrl+C (Prompt)
-static void	handle_sigint_prompt(int sig)
+static void handle_sigint_prompt(int sig)
 {
 	(void)sig;
 	write(STDOUT_FILENO, "\n", 1);
@@ -15,17 +15,22 @@ static void	handle_sigint_prompt(int sig)
 }
 
 // Ctrl+C (Heredoc)
-static void	handle_sigint_heredoc(int sig)
+static void handle_sigint_heredoc(int sig)
 {
 	(void)sig;
 	write(STDOUT_FILENO, "\n", 1);
+
+	rl_replace_line("", 0);
+
+	// ✅ CRITICAL: Close stdin to break readline loop
 	close(STDIN_FILENO);
+
 	if (shell_ref)
 		shell_ref->exit_code = 130;
 }
 
 // Genel sinyal kurulum fonksiyonu
-void	set_signal_mode(t_sigmode mode, t_shell *shell)
+void set_signal_mode(t_sigmode mode, t_shell *shell)
 {
 	shell_ref = shell;
 	if (mode == SIGMODE_PROMPT)

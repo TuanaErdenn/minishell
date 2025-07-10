@@ -38,6 +38,18 @@ static long	ft_atol(const char *str)
 	return (res * sign);
 }
 
+int	handle_exit(char *input, t_env *env_list)
+{
+	(void)env_list;
+	if (ft_strcmp(input, "exit") == 0)
+	{
+		write(1, "exit\n", 5);
+		free(input);
+		return (1);
+	}
+	return (0);
+}
+
 int	builtin_exit(char **args, t_shell *shell)
 {
 	int	argc = 0;
@@ -46,7 +58,7 @@ int	builtin_exit(char **args, t_shell *shell)
 	while (args[argc])
 		argc++;
 
-	ft_putendl_fd("exit", STDERR_FILENO);
+	ft_putendl_fd("exit", STDOUT_FILENO);
 
 	if (argc == 1)
 		exit(shell->exit_code);
@@ -59,7 +71,7 @@ int	builtin_exit(char **args, t_shell *shell)
 	}
 	if (argc > 2)
 	{
-		ft_putendl_fd("too many arguments", STDERR_FILENO);
+		ft_putendl_fd(" too many arguments", STDERR_FILENO);
 		shell->exit_code = 1;
 		return (1); // Shell burada çıkmamalı!
 	}
