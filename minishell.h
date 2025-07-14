@@ -57,6 +57,7 @@ typedef struct s_token {
 	t_token_type type;       // Token tipi
 	t_quote_type quote_type; // Quote bilgisi
 	struct s_token	*next;   // Token listesi için bağlı liste yapısı
+	struct s_token	*prev;   // Önceki token'ı gösterir (heredoc kontrolü için)
 
 } t_token;
 
@@ -64,40 +65,40 @@ typedef struct s_token {
 /* New structure to track redirection order */
 typedef struct s_redirection
 {
-    t_token_type type;          // T_INPUT, T_OUTPUT, T_APPEND, T_HEREDOC
-    char *filename;             // Filename for redirection
-    t_quote_type quote_type;    // Quote type of filename
-    int position;               // Original position in command line
+	t_token_type type;          // T_INPUT, T_OUTPUT, T_APPEND, T_HEREDOC
+	char *filename;             // Filename for redirection
+	t_quote_type quote_type;    // Quote type of filename
+	int position;               // Original position in command line
 } t_redirection;
 typedef struct s_ast {
-    t_node_type type;            // Komut, pipe veya redirect
-    char            **args;          // Komut argümanları (NODE_COMMAND için)
-    t_quote_type	*quote_types;     // Her argümana karşılık gelen quote türleri (args ile paralel)
-    t_redirect_type redirect_type;   // Yönlendirme türü (NODE_REDIR için)
-    char            *file;           // Yönlendirilen dosya adı (NODE_REDIR için)
-    t_quote_type    file_quote;      // Dosya isminin quote bilgisi (özellikle heredoc için önemli)
-    struct s_ast    *left;           // Sol alt düğüm
-    struct s_ast    *right;          // Sağ alt düğüm
-    
-    // ✅ Existing array-based redirection system
-    char **input_files;        // Input redirection dosyaları
-    char **output_files;       // Output redirection dosyaları  
-    char **append_files;       // Append redirection dosyaları
-    char **heredoc_delims;     // Heredoc delimiter'ları
-    
-    t_quote_type *input_quotes;         // Input dosyalarının quote durumu
-    t_quote_type *output_quotes;        // Output dosyalarının quote durumu
-    t_quote_type *append_quotes;        // Append dosyalarının quote durumu
-    t_quote_type *heredoc_quotes;       // Heredoc delimiter'larının quote durumu
-    
-    int input_count;
-    int output_count;
-    int append_count;
-    int heredoc_count;
-    
-    // ✅ NEW: Ordered redirection array
-    t_redirection *redirections;    // Array of redirections in order
-    int redir_count;               // Number of redirections
+	t_node_type type;            // Komut, pipe veya redirect
+	char            **args;          // Komut argümanları (NODE_COMMAND için)
+	t_quote_type	*quote_types;     // Her argümana karşılık gelen quote türleri (args ile paralel)
+	t_redirect_type redirect_type;   // Yönlendirme türü (NODE_REDIR için)
+	char            *file;           // Yönlendirilen dosya adı (NODE_REDIR için)
+	t_quote_type    file_quote;      // Dosya isminin quote bilgisi (özellikle heredoc için önemli)
+	struct s_ast    *left;           // Sol alt düğüm
+	struct s_ast    *right;          // Sağ alt düğüm
+	
+	// ✅ Existing array-based redirection system
+	char **input_files;        // Input redirection dosyaları
+	char **output_files;       // Output redirection dosyaları  
+	char **append_files;       // Append redirection dosyaları
+	char **heredoc_delims;     // Heredoc delimiter'ları
+	
+	t_quote_type *input_quotes;         // Input dosyalarının quote durumu
+	t_quote_type *output_quotes;        // Output dosyalarının quote durumu
+	t_quote_type *append_quotes;        // Append dosyalarının quote durumu
+	t_quote_type *heredoc_quotes;       // Heredoc delimiter'larının quote durumu
+	
+	int input_count;
+	int output_count;
+	int append_count;
+	int heredoc_count;
+	
+	// ✅ NEW: Ordered redirection array
+	t_redirection *redirections;    // Array of redirections in order
+	int redir_count;               // Number of redirections
 }	t_ast;
 
 /* ==================== KOMUT YAPISI (EXECUTION) ==================== */
@@ -121,11 +122,10 @@ typedef struct t_shell
 {
 	int     exit_code;      // Son komutun exit kodu
 	char    **envp;         // Environment variables
-	
-	//  NEW: Redirection için saved file descriptors (global değişken yerine)
 	int     saved_stdin;    // Original STDIN_FILENO backup
 	int     saved_stdout;   // Original STDOUT_FILENO backup
 	int     heredoc_counter; // Heredoc temp file unique counter
+	int     interrupted;    // Interrupt flag for signal handling
 } t_shell;
 
 /* ==================== UPDATED FUNCTION PROTOTYPES ==================== */
@@ -145,14 +145,22 @@ typedef enum e_sigmode
 {
 	SIGMODE_PROMPT,
 	SIGMODE_HEREDOC,
-	SIGMODE_CHILD
+	SIGMODE_CHILD,
+	SIGMODE_NEUTRAL
 }	t_sigmode;
 
+
+void set_token_prev_fields(t_token **tokens);
+int	ft_strcmp(const char *s1, const char *s2);
+t_env	*new_env_node(char *key, char *value);
 void	set_signal_mode(t_sigmode mode, t_shell *shell);
+int		check_and_reset_signal(t_shell *shell);
 int execute_command_common(t_env *env_list, t_cmd *cmd, t_shell *shell, int is_child_process);
 int	builtin_exit(char **args, t_shell *shell);
 char	*ft_strncpy(char *dest, const char *src, size_t n);
 int	is_n_flag(const char *str);
+void	split_env_line(char *line, char **key, char **value);
+void	add_env_node(t_env **env_list, t_env *new_node);
 /* ==================== BUILTIN VE GENEL FONKSİYONLAR ==================== */
 int ft_pwd(t_env *env_list);  // ✅ UPDATED: now takes env_list parameter
 int ft_strcmp(const char *s1, const char *s2);
@@ -207,6 +215,12 @@ int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell);
 // ✅ NEW: Array-based redirection functions
 int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell);
 int	handle_exit(char *input, t_env *env_list);
+void	cleanup_readline(void);
 int execute_external_command(t_env *env_list, t_cmd *cmd, t_shell *shell);
+int should_remove_arg(const char *original, const char *expanded, t_quote_type quote_type);
+void	free_str_array(char **arr);
+int expand_variable(t_env *env_list, char *str, int start);
+int should_remove_arg(const char *original, const char *expanded, t_quote_type quote_type);
 #include <sys/stat.h>
+char *expand_token_with_vars(t_token *token, t_env *env_list, t_shell *shell);
 #endif

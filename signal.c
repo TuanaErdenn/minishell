@@ -1,51 +1,61 @@
 #include "minishell.h"
 
-static t_shell *shell_ref = NULL;
+// Global interrupt flag (sadece bu dosya için)
+static volatile sig_atomic_t g_interrupt_flag = 0;
 
-// Ctrl+C (Prompt)
-static void handle_sigint_prompt(int sig)
+// Parent process için SIGINT handler - prompt'ta newline + redisplay
+static void handle_sigint_parent(int sig)
 {
 	(void)sig;
+	g_interrupt_flag = 1;
 	write(STDOUT_FILENO, "\n", 1);
 	rl_replace_line("", 0);
 	rl_on_new_line();
 	rl_redisplay();
-	if (shell_ref)
-		shell_ref->exit_code = 130;
 }
 
-// Ctrl+C (Heredoc)
-static void handle_sigint_heredoc(int sig)
+// Child process için SIGINT handler - sadece exit kodu ayarla
+static void handle_sigint_child(int sig)
 {
 	(void)sig;
-	write(STDOUT_FILENO, "\n", 1);
-
-	rl_replace_line("", 0);
-
-	// ✅ CRITICAL: Close stdin to break readline loop
-	close(STDIN_FILENO);
-
-	if (shell_ref)
-		shell_ref->exit_code = 130;
+	exit(130);
 }
 
-// Genel sinyal kurulum fonksiyonu
+// Sinyal kurulum fonksiyonu
 void set_signal_mode(t_sigmode mode, t_shell *shell)
 {
-	shell_ref = shell;
+	(void)shell;
+	
 	if (mode == SIGMODE_PROMPT)
 	{
-		signal(SIGINT, handle_sigint_prompt);
+		signal(SIGINT, handle_sigint_parent);
 		signal(SIGQUIT, SIG_IGN);
 	}
 	else if (mode == SIGMODE_HEREDOC)
 	{
-		signal(SIGINT, handle_sigint_heredoc);
+		signal(SIGINT, handle_sigint_parent);
+		signal(SIGQUIT, SIG_IGN);
+	}
+	else if (mode == SIGMODE_NEUTRAL)
+	{
+		signal(SIGINT, SIG_IGN);
 		signal(SIGQUIT, SIG_IGN);
 	}
 	else if (mode == SIGMODE_CHILD)
 	{
-		signal(SIGINT, SIG_DFL);
+		signal(SIGINT, handle_sigint_child);
 		signal(SIGQUIT, SIG_DFL);
 	}
+}
+
+// Sinyal durumunu kontrol fonksiyonu
+int check_and_reset_signal(t_shell *shell)
+{
+	if (g_interrupt_flag)
+	{
+		g_interrupt_flag = 0;
+		shell->exit_code = 130;
+		return (1);
+	}
+	return (0);
 }

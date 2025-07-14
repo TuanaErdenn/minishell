@@ -2,10 +2,6 @@
 #include "minishell.h"
 #include <signal.h>
 
-/* Düzeltilmiş pipe.c - Array-based redirection support */
-#include "minishell.h"
-#include <signal.h>
-
 /* Pipe'ları güvenli şekilde kapatma */
 static void close_pipes_safe(int *pipe_fd, int count)
 {
@@ -339,22 +335,30 @@ int execute_external_command(t_env *env_list, t_cmd *cmd, t_shell *shell)
 		free(path);
 
 	waitpid(pid, &status, 0);
+	
+	set_signal_mode(SIGMODE_PROMPT, shell);
 
-	// Exit code ayarla
-	if (WIFEXITED(status))
+	// Debug: status değerini kontrol et
+	if (status == 2) // SIGINT ile öldürüldü
 	{
-		shell->exit_code = WEXITSTATUS(status);
-		return (WEXITSTATUS(status));
+		write(STDOUT_FILENO, "\n", 1);
+		shell->exit_code = 130;
+		return (130);
 	}
-	else if (WIFSIGNALED(status))
+	else if (status == 0)
 	{
-		shell->exit_code = 128 + WTERMSIG(status);
-		return (128 + WTERMSIG(status));
+		shell->exit_code = 0;
+		return (0);
+	}
+	else if (status > 255)
+	{
+		shell->exit_code = status >> 8;
+		return (shell->exit_code);
 	}
 	else
 	{
-		shell->exit_code = 1;
-		return (1);
+		shell->exit_code = status;
+		return (status);
 	}
 }
 
@@ -444,7 +448,6 @@ int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_
 	int pipe_fd[2];
 	pid_t left_pid, right_pid;
 	int left_status, right_status;
-	int final_exit_code = 0;
 
 	// Pipe oluştur
 	if (pipe(pipe_fd) == -1)
@@ -497,14 +500,28 @@ int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_
 	waitpid(left_pid, &left_status, 0);
 	waitpid(right_pid, &right_status, 0);
 
-	// Exit code'u sağ child'ın sonucuna göre ayarla (bash davranışı)
-	if (WIFEXITED(right_status))
-		final_exit_code = WEXITSTATUS(right_status);
-	else if (WIFSIGNALED(right_status))
-		final_exit_code = 128 + WTERMSIG(right_status);
+	// SIGINT durumunda newline yaz ve 130 dön
+	if (left_status == 2 || right_status == 2)
+	{
+		write(STDOUT_FILENO, "\n", 1);
+		shell->exit_code = 130;
+		return (130);
+	}
+	
+	// Normal exit - sağ child'ın exit code'unu kullan
+	if (right_status == 0)
+	{
+		shell->exit_code = 0;
+		return (0);
+	}
+	else if (right_status > 255)
+	{
+		shell->exit_code = right_status >> 8;
+		return (shell->exit_code);
+	}
 	else
-		final_exit_code = 1;
-
-	shell->exit_code = final_exit_code;
-	return (final_exit_code);
+	{
+		shell->exit_code = right_status;
+		return (right_status);
+	}
 }

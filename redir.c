@@ -114,7 +114,7 @@ static int setup_append_redirection(const char *filename, t_shell *shell)
     return 0;
 }
 
-/* ✅ FIXED: Multiple heredoc support - bash-compliant behavior */
+/* ✅ FIXED: Multiple heredoc support - bash-compliant behavior with FORK */
 static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env **env_list, t_shell *shell, char **all_delimiters, int delimiter_count)
 {
     (void)delimiter; // Suppress unused parameter warning
@@ -124,27 +124,24 @@ static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env *
     char *expanded_line;
     int fd;
     int should_expand = (quote_type != Q_SINGLE);
-    int original_stdin = -1;
     int current_delimiter_index = 0;
+    pid_t child_pid;
+    int pipe_fd[2];
+    int status;
     
-    // ✅ ADD: Save original stdin
-    original_stdin = dup(STDIN_FILENO);
-    if (original_stdin == -1)
+    // Create pipe for communication
+    if (pipe(pipe_fd) == -1)
     {
-        perror("dup stdin");
+        perror("pipe");
         return -1;
     }
     
-    // ✅ ADD: Set heredoc signal mode
-    set_signal_mode(SIGMODE_HEREDOC, shell);
-    shell->exit_code = 0;  // Reset exit code
-    
-    // ✅ FIXED: Create temporary file without getpid() - use only counter
+    // Create temporary file
     counter_str = ft_itoa(shell->heredoc_counter++);
     if (!counter_str)
     {
-        close(original_stdin);
-        set_signal_mode(SIGMODE_PROMPT, shell);
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
         return -1;
     }
     
@@ -152,126 +149,147 @@ static int setup_heredoc(const char *delimiter, t_quote_type quote_type, t_env *
     free(counter_str);
     if (!tmpfile)
     {
-        close(original_stdin);
-        set_signal_mode(SIGMODE_PROMPT, shell);
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
         return -1;
     }
     
-    // Create and write to temporary file
-    fd = open(tmpfile, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd == -1)
+    // Fork for heredoc processing
+    child_pid = fork();
+    if (child_pid == -1)
     {
-        perror("tmpfile open");
+        perror("fork");
         free(tmpfile);
-        close(original_stdin);
-        set_signal_mode(SIGMODE_PROMPT, shell);
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
         return -1;
     }
     
-    // ✅ MULTIPLE HEREDOC: Read heredoc content with multiple delimiter support
-    while (1)
+    if (child_pid == 0)
     {
-        line = readline("> ");
-        if (!line)
+        // Child process: Handle heredoc reading
+        close(pipe_fd[0]); // Close read end
+        
+        // Set child signal handling
+        set_signal_mode(SIGMODE_CHILD, shell);
+        
+        // Create and write to temporary file
+        fd = open(tmpfile, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd == -1)
         {
-            // ✅ ENHANCED: Check if interrupted by signal
-            if (shell->exit_code == 130)
+            perror("tmpfile open");
+            free(tmpfile);
+            close(pipe_fd[1]);
+            cleanup_readline();
+            exit(1);
+        }
+        
+        // Read heredoc content
+        while (1)
+        {
+            line = readline("> ");
+            if (!line)
             {
-                // Interrupted by Ctrl+C
-                close(fd);
-                unlink(tmpfile);
-                free(tmpfile);
-                
-                // ✅ CRITICAL: Restore stdin
-                if (dup2(original_stdin, STDIN_FILENO) == -1)
-                    perror("dup2 restore stdin");
-                close(original_stdin);
-                
-                set_signal_mode(SIGMODE_PROMPT, shell);
-                return -1;
-            }
-            else
-            {
-                // EOF reached normally - show warning for the LAST delimiter
+                // EOF reached normally
                 printf("\nminishell: warning: here-document delimited by end-of-file (wanted `%s')\n", 
                        all_delimiters[delimiter_count - 1]);
                 break;
             }
-        }
-        
-        // ✅ CRITICAL: Check if line matches ANY delimiter from current position
-        int delimiter_found = -1;
-        for (int i = current_delimiter_index; i < delimiter_count; i++)
-        {
-            if (ft_strcmp(line, all_delimiters[i]) == 0)
-            {
-                delimiter_found = i;
-                break;
-            }
-        }
-        
-        if (delimiter_found != -1)
-        {
-            free(line);
             
-            if (delimiter_found == delimiter_count - 1)
+            // Check if line matches ANY delimiter from current position
+            int delimiter_found = -1;
+            for (int i = current_delimiter_index; i < delimiter_count; i++)
             {
-                // Last delimiter - stop reading
-                break;
-            }
-            else
-            {
-                // Found intermediate delimiter - skip to next
-                current_delimiter_index = delimiter_found + 1;
-                continue;
-            }
-        }
-        
-        // ✅ BASH BEHAVIOR: Only write to file if we're on the last delimiter
-        if (current_delimiter_index == delimiter_count - 1)
-        {
-            // Variable expansion (if not single quoted)
-            if (should_expand)
-            {
-                expanded_line = expand_string_with_vars(line, *env_list, shell);
-                if (expanded_line)
+                if (ft_strcmp(line, all_delimiters[i]) == 0)
                 {
-                    write(fd, expanded_line, ft_strlen(expanded_line));
-                    free(expanded_line);
+                    delimiter_found = i;
+                    break;
+                }
+            }
+            
+            if (delimiter_found != -1)
+            {
+                free(line);
+                
+                if (delimiter_found == delimiter_count - 1)
+                {
+                    // Last delimiter - stop reading
+                    break;
+                }
+                else
+                {
+                    // Found intermediate delimiter - skip to next
+                    current_delimiter_index = delimiter_found + 1;
+                    continue;
+                }
+            }
+            
+            // Only write to file if we're on the last delimiter
+            if (current_delimiter_index == delimiter_count - 1)
+            {
+                // Variable expansion (if not single quoted)
+                if (should_expand)
+                {
+                    expanded_line = expand_string_with_vars(line, *env_list, shell);
+                    if (expanded_line)
+                    {
+                        write(fd, expanded_line, ft_strlen(expanded_line));
+                        free(expanded_line);
+                    }
+                    else
+                    {
+                        write(fd, line, ft_strlen(line));
+                    }
                 }
                 else
                 {
                     write(fd, line, ft_strlen(line));
                 }
+                write(fd, "\n", 1);
             }
-            else
-            {
-                write(fd, line, ft_strlen(line));
-            }
-            write(fd, "\n", 1);
+            
+            free(line);
         }
         
-        free(line);
+        close(fd);
+        close(pipe_fd[1]);
+        free(tmpfile);
+        
+        // Clean up readline before exit to prevent memory leaks
+        cleanup_readline();
+        
+        // Clean up environment before exit to reduce valgrind noise
+        // Note: This is not strictly necessary as the OS cleans up when process exits
+        // but it makes valgrind output cleaner
+        exit(0);
     }
-    
-    close(fd);
-    
-    // ✅ CRITICAL: Restore stdin
-    if (dup2(original_stdin, STDIN_FILENO) == -1)
-        perror("dup2 restore stdin");
-    close(original_stdin);
-    
-    // ✅ CRITICAL: Restore signal mode
-    set_signal_mode(SIGMODE_PROMPT, shell);
-    
-    // Setup input redirection from temporary file
-    int result = setup_input_redirection(tmpfile, shell);
-    
-    // Clean up temporary file
-    unlink(tmpfile);
-    free(tmpfile);
-    
-    return result;
+    else
+    {
+        // Parent process: Wait for child and handle signals
+        close(pipe_fd[1]); // Close write end
+        
+        // Wait for child process
+        waitpid(child_pid, &status, 0);
+        close(pipe_fd[0]);
+        
+        // Check if child was interrupted by signal
+        if (WIFSIGNALED(status))
+        {
+            shell->exit_code = 130;
+            unlink(tmpfile);
+            free(tmpfile);
+            return -1;
+        }
+        
+        // Setup input redirection from temporary file
+        int result = setup_input_redirection(tmpfile, shell);
+        
+        // Clean up temporary file
+        unlink(tmpfile);
+        free(tmpfile);
+        
+        return result;
+    }
 }
 
 /* ✅ FIXED: setup_redirections - Handle multiple heredocs like bash */
@@ -340,15 +358,28 @@ int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell)
     {
         // Collect all heredoc delimiters
         heredoc_delimiters = malloc(sizeof(char*) * heredoc_count);
-        if (!heredoc_delimiters)
+        char **original_delimiters = malloc(sizeof(char*) * heredoc_count);
+        if (!heredoc_delimiters || !original_delimiters)
+        {
+            free(heredoc_delimiters);
+            free(original_delimiters);
             return -1;
+        }
         
         int idx = 0;
         for (int i = 0; i < cmd->redir_count; i++)
         {
             if (cmd->redirections[i].type == T_HEREDOC)
             {
-                heredoc_delimiters[idx++] = cmd->redirections[i].filename;
+                original_delimiters[idx] = cmd->redirections[i].filename;
+                // DON'T expand heredoc delimiters - they should be literal
+                heredoc_delimiters[idx] = ft_strdup(cmd->redirections[i].filename);
+                if (!heredoc_delimiters[idx])
+                {
+                    // If strdup failed, use original and mark as such
+                    heredoc_delimiters[idx] = cmd->redirections[i].filename;
+                }
+                idx++;
             }
         }
         
@@ -367,11 +398,25 @@ int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell)
         if (setup_heredoc(heredoc_delimiters[heredoc_count-1], last_quote, 
                          env_list, shell, heredoc_delimiters, heredoc_count) != 0)
         {
+            // Free expanded delimiters before returning
+            for (int i = 0; i < heredoc_count; i++)
+            {
+                if (heredoc_delimiters[i] != original_delimiters[i])
+                    free(heredoc_delimiters[i]);
+            }
             free(heredoc_delimiters);
+            free(original_delimiters);
             return -1;
         }
         
+        // Free expanded delimiters
+        for (int i = 0; i < heredoc_count; i++)
+        {
+            if (heredoc_delimiters[i] != original_delimiters[i])
+                free(heredoc_delimiters[i]);
+        }
         free(heredoc_delimiters);
+        free(original_delimiters);
     }
     
     // ✅ STEP 4: Setup actual I/O redirections

@@ -35,6 +35,7 @@ const char	*get_token_type_str(int type)
 		return ("INVALID");
 	return ("UNKNOWN");
 }
+
 /* Bir karakterin boşluk olup olmadığını kontrol etme */
 int is_space(char c)
 {
@@ -169,6 +170,7 @@ t_token *create_token_with_quote(char *value, t_token_type type, int quote_type)
 	token->type = type;
 	token->quote_type = quote_type;
 	token->next = NULL;
+	token->prev = NULL;
 	return token;
 }
 
@@ -271,7 +273,6 @@ int create_special_token(char *input, int i, t_token **tokens, int *token_index)
 }
 
 /* Enhanced word token creation - handles adjacent quotes with proper quote type */
-// ...existing code...
 
 /* Enhanced word token creation with variable expansion */
 int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_index, t_env *env_list, t_shell *shell)
@@ -279,9 +280,17 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
     int start = i;
     char *result = NULL;
     char *temp_result = NULL;
+    int has_quotes = 0;
     int quote_type = Q_NONE;
     int single_quote_count = 0;
     int double_quote_count = 0;
+    int should_expand = 1;  // By default, expand variables
+
+    // Check if previous token is T_HEREDOC - if so, don't expand
+    if (*token_index > 0 && tokens[*token_index - 1] && tokens[*token_index - 1]->type == T_HEREDOC)
+    {
+        should_expand = 0;  // Don't expand heredoc delimiters
+    }
 
     // Önce tüm token'ı tara ve quote tipini belirle
     int temp_i = i;
@@ -290,6 +299,7 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
     {
         if (input[temp_i] == '\'')
         {
+            has_quotes = 1;
             single_quote_count++;
             // Tırnak içini atla
             temp_i++; // Açılış tırnağını atla
@@ -300,6 +310,7 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
         }
         else if (input[temp_i] == '\"')
         {
+            has_quotes = 1;
             double_quote_count++;
             // Tırnak içini atla
             temp_i++; // Açılış tırnağını atla
@@ -346,8 +357,8 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
                 char *quoted_content = ft_substr(input, quote_start, j - quote_start);
                 if (quoted_content)
                 {
-                    // ✅ CRITICAL: Tek tırnak değilse expansion yap
-                    if (quote != '\'' && ft_strchr(quoted_content, '$'))
+                    // ✅ CRITICAL: Tek tırnak değilse ve expand edilmesi gerekiyorsa expansion yap
+                    if (quote != '\'' && should_expand && ft_strchr(quoted_content, '$'))
                     {
                         char *expanded = expand_string_with_vars(quoted_content, env_list, shell);
                         if (expanded)
@@ -387,8 +398,8 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
                 char *unquoted_content = ft_substr(input, unquoted_start, j - unquoted_start);
                 if (unquoted_content)
                 {
-                    // ✅ EXPANSION: Tırnak dışı $ varsa expand et
-                    if (ft_strchr(unquoted_content, '$'))
+                    // ✅ EXPANSION: Tırnak dışı $ varsa ve expand edilmesi gerekiyorsa expand et
+                    if (should_expand && ft_strchr(unquoted_content, '$'))
                     {
                         char *expanded = expand_string_with_vars(unquoted_content, env_list, shell);
                         if (expanded)
@@ -432,8 +443,6 @@ int create_word_token_enhanced(char *input, int i, t_token **tokens, int *token_
     free(result);
     return i;
 }
-
-// ...existing code...
 
 /* Normal kelime token oluştur */
 int create_word_token(char *input, int i, t_token **tokens, int *token_index)
@@ -682,26 +691,25 @@ t_token **tokenize_with_expansion(char *input, t_env *env_list, t_shell *shell)
     }
 
     tokens[token_count] = NULL;
+    set_token_prev_fields(tokens);  // Set prev fields
     return tokens;
 }
 
-/* Normal tokenize fonksiyonu - expansion olmadan */
-t_token **tokenize(char *input)
+/* Token array'indeki prev field'larını set eden fonksiyon */
+void set_token_prev_fields(t_token **tokens)
 {
-	t_token **tokens;
-	int token_count;
-
-	token_count = count_tokens(input);
-	tokens = (t_token **)malloc(sizeof(t_token *) * (token_count + 1));
-	if (!tokens)
-		return NULL;
-
-	if (!fill_tokens(input, tokens))
-	{
-		freetokens(tokens);
-		return NULL;
-	}
-
-	tokens[token_count] = NULL;
-	return tokens;
+    int i;
+    
+    if (!tokens)
+        return;
+    
+    i = 0;
+    while (tokens[i])
+    {
+        if (i > 0)
+            tokens[i]->prev = tokens[i - 1];
+        else
+            tokens[i]->prev = NULL;
+        i++;
+    }
 }

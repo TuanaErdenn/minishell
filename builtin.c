@@ -6,7 +6,7 @@
 /*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/09 16:41:40 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/09 17:45:13 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/07/11 15:00:53 by zyilmaz          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -79,6 +79,8 @@ int	is_builtin(t_cmd *cmd)
 	if (!ft_strcmp(cmd->args[0], "cd"))
 		return (1);
 	if (!ft_strcmp(cmd->args[0], "export"))
+		return (1);
+	if (!ft_strcmp(cmd->args[0], "env"))
 		return (1);
 	if (!ft_strcmp(cmd->args[0], "unset"))
 		return (1);

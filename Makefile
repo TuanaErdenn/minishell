@@ -3,7 +3,7 @@ NAME = minishell
 CC = cc
 CFLAGS = -Wall -Wextra -Werror -g #-fsanitize=address -g3
 
-SRCS = main.c parse.c token.c builtin.c free.c env.c expander.c redir.c export.c unset.c pipe.c find.c signal.c exit.c builtin2.c builtin3.c builtin4.c
+SRCS = main.c parse.c token.c builtin.c free.c env.c env_utils.c expander.c expander_utils1.c expander_utils.c redir.c export.c unset.c pipe.c find.c signal.c exit.c builtin2.c builtin3.c builtin4.c
 
 OBJS = $(SRCS:.c=.o)
 

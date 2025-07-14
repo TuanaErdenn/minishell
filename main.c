@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   main.c                                             :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
+/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/09 16:12:43 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/09 16:30:48 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/07/14 15:37:16 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -71,6 +71,12 @@ static void	initshell(t_shell *shell, char **envp)
 	shell->saved_stdin = -1;
 	shell->saved_stdout = -1;
 	shell->heredoc_counter = 0;
+	shell->interrupted = 0;
+}
+
+void	cleanup_readline(void)
+{
+	rl_clear_history();
 }
 
 static void	shell_loop(t_env *env_list, t_shell *shell)
@@ -81,20 +87,33 @@ static void	shell_loop(t_env *env_list, t_shell *shell)
 	{
 		set_signal_mode(SIGMODE_PROMPT, shell);
 		input = readline("🐣🌞 minishell ");
+		
+		// Readline interrupt oldu mu kontrol et (Ctrl+C basıldı)
 		if (!input)
 		{
 			write(1, "exit\n", 5);
 			break ;
 		}
+		
+		// Interrupt flag'ini kontrol et
+		check_and_reset_signal(shell);
+		
+		set_signal_mode(SIGMODE_NEUTRAL, shell);
+		
 		if (*input)
 		{
 			add_history(input);
 			if (handle_exit(input, env_list))
+			{
+				free(input);
 				break ;
+			}
 			process_input(input, env_list, shell);
 		}
+		
 		free(input);
 	}
+	cleanup_readline();
 }
 
 int	main(int argc, char **argv, char **envp)
@@ -116,6 +135,7 @@ int	main(int argc, char **argv, char **envp)
 	}
 	initshell(&shell, envp);
 	shell_loop(env_list, &shell);
+	
 	free_env_list(env_list);
 	return (shell.exit_code);
 }
