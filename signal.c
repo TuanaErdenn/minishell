@@ -21,6 +21,13 @@ static void handle_sigint_child(int sig)
 	exit(130);
 }
 
+// Child process için SIGQUIT handler - quit mesajı + exit
+static void handle_sigquit_child(int sig)
+{
+	(void)sig;
+	exit(131);
+}
+
 // Sinyal kurulum fonksiyonu
 void set_signal_mode(t_sigmode mode, t_shell *shell)
 {
@@ -44,7 +51,7 @@ void set_signal_mode(t_sigmode mode, t_shell *shell)
 	else if (mode == SIGMODE_CHILD)
 	{
 		signal(SIGINT, handle_sigint_child);
-		signal(SIGQUIT, SIG_DFL);
+		signal(SIGQUIT, handle_sigquit_child);
 	}
 }
 

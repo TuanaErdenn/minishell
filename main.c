@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   main.c                                             :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
+/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/09 16:12:43 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/14 15:37:16 by terden           ###   ########.fr       */
+/*   Updated: 2025/07/16 19:56:08 by zyilmaz          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -40,10 +40,9 @@ static int	check_quotes(char *input)
 static void	process_input(char *input, t_env *env_list, t_shell *shell)
 {
 	t_token	**tokens;
-	t_ast	*ast;
 
 	tokens = NULL;
-	ast = NULL;
+	shell->ast = NULL;
 	if (!input || !*input)
 		return ;
 	if (!check_quotes(input))
@@ -51,16 +50,20 @@ static void	process_input(char *input, t_env *env_list, t_shell *shell)
 	tokens = tokenize_with_expansion(input, env_list, shell);
 	if (!tokens)
 		return ;
-	ast = parse_tokens(tokens);
+	shell->ast = parse_tokens(tokens);
 	freetokens(tokens);
 	tokens = NULL;
-	if (!ast)
-		return ;
-	execute_ast(ast, &env_list, shell);
-	if (ast)
+	if (!shell->ast)
 	{
-		free_ast(ast);
-		ast = NULL;
+		// Parse error oldu - exit code 2 yap
+		shell->exit_code = 2;
+		return ;
+	}
+	execute_ast(shell->ast, &env_list, shell);
+	if (shell->ast)
+	{
+		free_ast(shell->ast);
+		shell->ast = NULL;
 	}
 }
 
@@ -72,6 +75,8 @@ static void	initshell(t_shell *shell, char **envp)
 	shell->saved_stdout = -1;
 	shell->heredoc_counter = 0;
 	shell->interrupted = 0;
+	shell->heredoc_temp_files = NULL;
+    shell->heredoc_temp_count = 0;  // ✅ Bu satır olmalı
 }
 
 void	cleanup_readline(void)

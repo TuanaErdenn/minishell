@@ -1,4 +1,4 @@
-/* FIXED parse.c - Bash-compliant redirection: correctly handles mixed args and redirections */
+/* ✅ IMPROVED parse.c - Enhanced AST with proper fd management */
 #include "minishell.h"
 
 /* Helper function to safely free args array */
@@ -17,25 +17,39 @@ static void free_args_array(char **args)
 	free(args);
 }
 
-/* FIXED: free_ast() - Clean up new redirection array */
+/* ✅ UPDATED: Enhanced free_ast with new redirection cleanup */
 void free_ast(t_ast *node)
 {
     if (!node)
         return;
 
-    // ✅ Clean up NEW redirection array
+    /* ✅ Clean up NEW redirection array with enhanced fields */
     if (node->redirections)
     {
         for (int i = 0; i < node->redir_count; i++)
         {
             if (node->redirections[i].filename)
                 free(node->redirections[i].filename);
+            if (node->redirections[i].temp_file)
+                free(node->redirections[i].temp_file);
+            if (node->redirections[i].delimiter)
+                free(node->redirections[i].delimiter);
+            
+            /* Close any open file descriptors */
+            if (node->redirections[i].fd != -1)
+                close(node->redirections[i].fd);
         }
         free(node->redirections);
         node->redirections = NULL;
     }
 
-    // ✅ Clean up existing fields
+    /* ✅ Close backup file descriptors */
+    if (node->saved_stdin_fd != -1)
+        close(node->saved_stdin_fd);
+    if (node->saved_stdout_fd != -1)
+        close(node->saved_stdout_fd);
+
+    /* ✅ Clean up existing fields */
     if (node->args)
     {
         free_args_array(node->args);
@@ -48,7 +62,7 @@ void free_ast(t_ast *node)
         node->quote_types = NULL;
     }
 
-    // Clean up old redirection arrays (for backward compatibility)
+    /* Clean up legacy redirection arrays */
     if (node->input_files)
     {
         free_args_array(node->input_files);
@@ -69,8 +83,13 @@ void free_ast(t_ast *node)
         free_args_array(node->heredoc_delims);
         node->heredoc_delims = NULL;
     }
+    if (node->heredoc_contents)
+    {
+        free_args_array(node->heredoc_contents);
+        node->heredoc_contents = NULL;
+    }
     
-    // Clean up quote arrays
+    /* Clean up quote arrays */
     if (node->input_quotes)
     {
         free(node->input_quotes);
@@ -98,7 +117,7 @@ void free_ast(t_ast *node)
         node->file = NULL;
     }
 
-    // Clean up child nodes recursively
+    /* Clean up child nodes recursively */
     if (node->left)
     {
         free_ast(node->left);
@@ -111,8 +130,50 @@ void free_ast(t_ast *node)
         node->right = NULL;
     }
 
-    // Free the node itself
+    /* Free the node itself */
     free(node);
+}
+
+/* ✅ HELPER: Initialize AST node with all fields */
+static t_ast *create_ast_node(t_node_type type)
+{
+    t_ast *node = malloc(sizeof(t_ast));
+    if (!node)
+        return NULL;
+        
+    /* Initialize all fields to safe values */
+    node->type = type;
+    node->args = NULL;
+    node->quote_types = NULL;
+    node->redirect_type = 0;
+    node->file = NULL;
+    node->file_quote = Q_NONE;
+    node->left = NULL;
+    node->right = NULL;
+    
+    /* ✅ NEW: Initialize enhanced redirection fields */
+    node->redirections = NULL;
+    node->redir_count = 0;
+    node->saved_stdin_fd = -1;
+    node->saved_stdout_fd = -1;
+    node->redirections_applied = 0;
+    
+    /* Initialize legacy redirection arrays */
+    node->input_files = NULL;
+    node->output_files = NULL;
+    node->append_files = NULL;
+    node->heredoc_delims = NULL;
+    node->heredoc_contents = NULL;
+    node->input_quotes = NULL;
+    node->output_quotes = NULL;
+    node->append_quotes = NULL;
+    node->heredoc_quotes = NULL;
+    node->input_count = 0;
+    node->output_count = 0;
+    node->append_count = 0;
+    node->heredoc_count = 0;
+
+    return node;
 }
 
 /* ADDITIONAL: Güvenli parse_tokens wrapper */
@@ -123,15 +184,15 @@ t_ast *parse_tokens(t_token **tokens)
 	if (!tokens || !tokens[0])
 		return NULL;
 
-	// Token dizisinde PIPE arıyoruz
+	/* Token dizisinde PIPE arıyoruz */
 	while (tokens[i])
 	{
 		if (tokens[i]->type == T_PIPE)
-			return parse_pipe(tokens, i); // İlk PIPE bulunduğunda parçala
+			return parse_pipe(tokens, i); /* İlk PIPE bulunduğunda parçala */
 		i++;
 	}
 
-	// PIPE yoksa tüm aralık komut olarak gönder
+	/* PIPE yoksa tüm aralık komut olarak gönder */
 	return parse_command(tokens, 0, i);
 }
 
@@ -141,51 +202,45 @@ t_ast *parse_pipe(t_token **tokens, int pipe_index)
 	t_ast *right = NULL;
 	t_ast *node = NULL;
 
-	// Sol kısmı parse et
+	/* Pipe syntax kontrolü */
+	if (pipe_index == 0)
+	{
+		/* Pipe'dan önce hiçbir şey yok */
+		ft_putstr_fd("minishell: syntax error near unexpected token `|'\n", 2);
+		return NULL;
+	}
+	
+	if (!tokens[pipe_index + 1])
+	{
+		/* Pipe'dan sonra hiçbir şey yok */
+		ft_putstr_fd("minishell: syntax error near unexpected token `|'\n", 2);
+		return NULL;
+	}
+
+	/* Sol kısmı parse et */
 	left = parse_command(tokens, 0, pipe_index);
 	if (!left)
 		return NULL;
 
-	// Sağ kısmı parse et (pipe'dan sonraki tokenlar)
+	/* Sağ kısmı parse et (pipe'dan sonraki tokenlar) */
 	right = parse_tokens(&tokens[pipe_index + 1]);
 	if (!right)
 	{
-		free_ast(left); // Sol kısmı temizle
+		free_ast(left); /* Sol kısmı temizle */
 		return NULL;
 	}
 
-	// Pipe node'unu oluştur
-	node = calloc(1, sizeof(t_ast));
+	/* ✅ UPDATED: Use helper function for consistent initialization */
+	node = create_ast_node(NODE_PIPE);
 	if (!node)
 	{
-		free_ast(left); // Her iki kısmı da temizle
+		free_ast(left); /* Her iki kısmı da temizle */
 		free_ast(right);
 		return NULL;
 	}
 
-	// PIPE AST düğümü oluştur - tüm alanları initialize et
-	node->type = NODE_PIPE;
-	node->args = NULL;
-	node->quote_types = NULL;
-	node->redirect_type = 0;
-	node->file = NULL;
-	node->file_quote = Q_NONE;
 	node->left = left;
 	node->right = right;
-	
-	// Redirection arrays'leri initialize et
-	node->input_files = NULL;
-	node->output_files = NULL;
-	node->append_files = NULL;
-	node->heredoc_delims = NULL;
-	node->input_quotes = NULL;
-	node->output_quotes = NULL;
-	node->append_quotes = NULL;
-	node->heredoc_quotes = NULL;
-	node->input_count = 0;
-	node->output_count = 0;
-	node->append_count = 0;
-	node->heredoc_count = 0;
 
 	return node;
 }
@@ -197,7 +252,7 @@ int add_redirection(char ***files, t_quote_type **quotes, int *count,
 	char **new_files;
 	t_quote_type *new_quotes;
 
-	// +2: biri yeni eleman, biri NULL sonlandırma için
+	/* +2: biri yeni eleman, biri NULL sonlandırma için */
 	new_files = realloc(*files, sizeof(char *) * (*count + 2));
 	new_quotes = realloc(*quotes, sizeof(t_quote_type) * (*count + 1));
 
@@ -218,10 +273,11 @@ int add_redirection(char ***files, t_quote_type **quotes, int *count,
 	(*quotes)[*count] = quote_type;
 	(*count)++;
 
-	(*files)[*count] = NULL;  // ✅ NULL SONLANDIRMA
+	(*files)[*count] = NULL;  /* ✅ NULL SONLANDIRMA */
 	return 1;
 }
 
+/* ✅ UPDATED: Enhanced parse_command with better redirection handling */
 t_ast *parse_command(t_token **tokens, int start, int end)
 {
     t_ast *cmd_node = NULL;
@@ -232,47 +288,19 @@ t_ast *parse_command(t_token **tokens, int start, int end)
     int arg_count = 0;
     int redir_count = 0;
 
-    // Create command node first
-    cmd_node = malloc(sizeof(t_ast));
+    /* ✅ UPDATED: Use helper function for consistent initialization */
+    cmd_node = create_ast_node(NODE_COMMAND);
     if (!cmd_node)
         return NULL;
-        
-    // Initialize all fields
-    cmd_node->type = NODE_COMMAND;
-    cmd_node->args = NULL;
-    cmd_node->quote_types = NULL;
-    cmd_node->redirect_type = 0;
-    cmd_node->file = NULL;
-    cmd_node->file_quote = Q_NONE;
-    cmd_node->left = NULL;
-    cmd_node->right = NULL;
-    
-    // Initialize NEW redirection tracking
-    cmd_node->redirections = NULL;
-    cmd_node->redir_count = 0;
-    
-    // Initialize old redirection arrays for backward compatibility
-    cmd_node->input_files = NULL;
-    cmd_node->output_files = NULL;
-    cmd_node->append_files = NULL;
-    cmd_node->heredoc_delims = NULL;
-    cmd_node->input_quotes = NULL;
-    cmd_node->output_quotes = NULL;
-    cmd_node->append_quotes = NULL;
-    cmd_node->heredoc_quotes = NULL;
-    cmd_node->input_count = 0;
-    cmd_node->output_count = 0;
-    cmd_node->append_count = 0;
-    cmd_node->heredoc_count = 0;
 
-    // ✅ PASS 1: Count arguments and redirections
+    /* ✅ PASS 1: Count arguments and redirections */
     i = start;
     while (i < end)
     {
         if (tokens[i]->type >= T_INPUT && tokens[i]->type <= T_HEREDOC)
         {
             redir_count++;
-            i += 2; // Skip operator and filename
+            i += 2; /* Skip operator and filename */
             if (i > end)
             {
                 printf("Syntax Error: Missing file after redirection\n");
@@ -291,7 +319,7 @@ t_ast *parse_command(t_token **tokens, int start, int end)
         }
     }
 
-    // ✅ PASS 2: Allocate arrays
+    /* ✅ PASS 2: Allocate arrays */
     if (arg_count > 0)
     {
         args = malloc(sizeof(char *) * (arg_count + 1));
@@ -315,35 +343,52 @@ t_ast *parse_command(t_token **tokens, int start, int end)
             free_ast(cmd_node);
             return NULL;
         }
+        
+        /* ✅ CRITICAL: Initialize all redirection fields */
+        for (int j = 0; j < redir_count; j++)
+        {
+            redirections[j].type = T_WORD; /* Safe default */
+            redirections[j].filename = NULL;
+            redirections[j].quote_type = Q_NONE;
+            redirections[j].position = 0;
+            redirections[j].fd = -1;
+            redirections[j].temp_file = NULL;
+            redirections[j].is_applied = 0;
+            redirections[j].delimiter = NULL;
+            redirections[j].should_expand = 0;
+        }
     }
 
-    // ✅ PASS 3: Fill arrays in ORDER
+    /* ✅ PASS 3: Fill arrays in ORDER */
     int arg_index = 0;
     int redir_index = 0;
-    int position = 0;  // Track position in command line
+    int position = 0;  /* Track position in command line */
     
     i = start;
     while (i < end)
     {
         if (tokens[i]->type >= T_INPUT && tokens[i]->type <= T_HEREDOC)
         {
-            // Handle redirection - PRESERVE ORDER
+            /* Handle redirection - PRESERVE ORDER */
             if (i + 1 >= end || tokens[i + 1]->type != T_WORD)
             {
                 printf("Syntax Error: Missing file after redirection\n");
-                // Cleanup
+                /* Cleanup */
                 while (--arg_index >= 0)
                     free(args[arg_index]);
                 free(args);
                 free(quotes);
                 for (int j = 0; j < redir_index; j++)
-                    free(redirections[j].filename);
+                {
+                    if (redirections[j].filename)
+                        free(redirections[j].filename);
+                }
                 free(redirections);
                 free_ast(cmd_node);
                 return NULL;
             }
 
-            // ✅ CRITICAL: Store redirection in ORDER
+            /* ✅ CRITICAL: Store redirection in ORDER with enhanced fields */
             redirections[redir_index].type = tokens[i]->type;
             redirections[redir_index].filename = ft_strdup(tokens[i + 1]->value);
             redirections[redir_index].quote_type = tokens[i + 1]->quote_type;
@@ -351,35 +396,41 @@ t_ast *parse_command(t_token **tokens, int start, int end)
             
             if (!redirections[redir_index].filename)
             {
-                // Cleanup on failure
+                /* Cleanup on failure */
                 while (--arg_index >= 0)
                     free(args[arg_index]);
                 free(args);
                 free(quotes);
                 for (int j = 0; j < redir_index; j++)
-                    free(redirections[j].filename);
+                {
+                    if (redirections[j].filename)
+                        free(redirections[j].filename);
+                }
                 free(redirections);
                 free_ast(cmd_node);
                 return NULL;
             }
             
             redir_index++;
-            i += 2; // Skip operator and filename
+            i += 2; /* Skip operator and filename */
             position += 2;
         }
         else if (tokens[i]->type == T_WORD)
         {
-            // Handle command argument
+            /* Handle command argument */
             args[arg_index] = ft_strdup(tokens[i]->value);
             if (!args[arg_index])
             {
-                // Cleanup on failure
+                /* Cleanup on failure */
                 while (--arg_index >= 0)
                     free(args[arg_index]);
                 free(args);
                 free(quotes);
                 for (int j = 0; j < redir_index; j++)
-                    free(redirections[j].filename);
+                {
+                    if (redirections[j].filename)
+                        free(redirections[j].filename);
+                }
                 free(redirections);
                 free_ast(cmd_node);
                 return NULL;
@@ -396,7 +447,7 @@ t_ast *parse_command(t_token **tokens, int start, int end)
         }
     }
     
-    // ✅ Finalize arrays
+    /* ✅ Finalize arrays */
     if (args)
     {
         args[arg_count] = NULL;
@@ -409,7 +460,10 @@ t_ast *parse_command(t_token **tokens, int start, int end)
         if (!cmd_node->args)
         {
             for (int j = 0; j < redir_index; j++)
-                free(redirections[j].filename);
+            {
+                if (redirections[j].filename)
+                    free(redirections[j].filename);
+            }
             free(redirections);
             free_ast(cmd_node);
             return NULL;
@@ -424,76 +478,90 @@ t_ast *parse_command(t_token **tokens, int start, int end)
     return cmd_node;
 }
 
+/* ✅ UPDATED: Enhanced execute_ast with proper heredoc timing */
 void execute_ast(t_ast *node, t_env **env_list, t_shell *shell)
 {
     t_cmd cmd;
     t_ast *current = node;
 
-    while (current)
+    if (!current)
+        return;
+
+    if (current->type == NODE_COMMAND)
     {
-        if (!current)
-            break;
-
-        if (current->type == NODE_COMMAND)
+        /* ✅ STEP 1: Pre-process heredocs FIRST */
+        if (preprocess_all_heredocs(current, env_list, shell) != 0)
         {
-            // t_cmd yapısını hazırla
-            ft_bzero(&cmd, sizeof(t_cmd));
-            cmd.args = current->args;
+            shell->exit_code = 1;
+            cleanup_heredoc_temp_files(shell);
+            return;
+        }
 
-            // Quote_types'ları kopyala
-            if (current->quote_types && current->args)
-            {
-                int arg_count = 0;
-                while (current->args[arg_count])
-                    arg_count++;
+        /* t_cmd yapısını hazırla */
+        ft_bzero(&cmd, sizeof(t_cmd));
+        cmd.args = current->args;
 
-                cmd.args_quote_type = malloc(sizeof(int) * arg_count);
-                if (cmd.args_quote_type)
-                {
-                    for (int i = 0; i < arg_count; i++)
-                        cmd.args_quote_type[i] = (int)current->quote_types[i];
-                }
-            }
-            else
-            {
-                cmd.args_quote_type = NULL;
-            }
+        /* Quote_types'ları kopyala */
+        if (current->quote_types && current->args)
+        {
+            int arg_count = 0;
+            while (current->args[arg_count])
+                arg_count++;
 
-            /* Redirections setup */
-            int redir_result = setup_redirections(current, env_list, shell);
-            if (redir_result != 0)
-            {
-                shell->exit_code = 1;
-                if (cmd.args_quote_type)
-                    free(cmd.args_quote_type);
-                break;
-            }
-
-            /* ✅ OPTIMIZED: Ortak fonksiyon kullan */
-            shell->exit_code = execute_command_common(*env_list, &cmd, shell, 0);
-
-            /* Redirections restore */
-            restore_redirections(shell);
-
-            // Memory cleanup
+            cmd.args_quote_type = malloc(sizeof(int) * arg_count);
             if (cmd.args_quote_type)
-                free(cmd.args_quote_type);
-
-            break;
-        }
-        else if (current->type == NODE_PIPE)
-        {
-            shell->exit_code = execute_pipe(current, *env_list, shell, node);
-            break;
-        }
-        else if (current->type == NODE_REDIR)
-        {
-            shell->exit_code = execute_redirection(current, env_list, shell);
-            break;
+            {
+                for (int i = 0; i < arg_count; i++)
+                    cmd.args_quote_type[i] = (int)current->quote_types[i];
+            }
         }
         else
         {
-            break;
+            cmd.args_quote_type = NULL;
         }
+
+        /* ✅ STEP 2: Setup redirections using NEW system */
+        int redir_result = setup_command_redirections(current, env_list, shell);
+        if (redir_result != 0)
+        {
+            shell->exit_code = 1;
+            if (cmd.args_quote_type)
+                free(cmd.args_quote_type);
+            cleanup_heredoc_temp_files(shell);
+            return;
+        }
+
+        /* ✅ STEP 3: Execute command */
+        shell->exit_code = execute_command_common(*env_list, &cmd, shell, 0);
+
+        /* ✅ STEP 4: Restore redirections */
+        restore_command_redirections(current);
+
+        /* Memory cleanup */
+        if (cmd.args_quote_type)
+            free(cmd.args_quote_type);
+            
+        /* ✅ Cleanup heredoc temp files */
+        cleanup_heredoc_temp_files(shell);
+    }
+    else if (current->type == NODE_PIPE)
+    {
+        /* ✅ CRITICAL: Pre-process ALL heredocs BEFORE forking */
+        if (preprocess_all_heredocs(current, env_list, shell) != 0)
+        {
+            shell->exit_code = 1;
+            cleanup_heredoc_temp_files(shell);
+            return;
+        }
+
+        /* ✅ Now execute pipe with heredocs ready */
+        shell->exit_code = execute_pipe(current, *env_list, shell, node);
+        
+        /* ✅ Cleanup heredoc temp files after pipe execution */
+        cleanup_heredoc_temp_files(shell);
+    }
+    else if (current->type == NODE_REDIR)
+    {
+        shell->exit_code = execute_redirection(current, env_list, shell);
     }
 }

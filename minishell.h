@@ -7,101 +7,144 @@
 # include <stdlib.h>
 # include <string.h>
 # include <unistd.h>
-# include <readline/readline.h>  // readline fonksiyonu için 
-# include <readline/history.h>  // add_history için
-# include <sys/wait.h> //waitpid için
-#include <fcntl.h>
-#include <signal.h>
+# include <readline/readline.h>
+# include <readline/history.h>
+# include <sys/wait.h>
+# include <fcntl.h>
+# include <signal.h>
+# include <sys/stat.h>
+# include <errno.h>
+
 /* ==================== ENUM TİPLERİ ==================== */
 
-/* Token türlerini belirtir */
 typedef enum e_token_type {
-	T_WORD,        // Genel kelime veya arg
-	T_PIPE,        // |
-	T_INPUT,       // <
-	T_OUTPUT,      // >
-	T_APPEND,      // >>
-	T_HEREDOC,     // <<
-	T_INVALID      // Tanımsız veya hatalı token
+	T_WORD,
+	T_PIPE,
+	T_INPUT,
+	T_OUTPUT,
+	T_APPEND,
+	T_HEREDOC,
+	T_INVALID
 }	t_token_type;
 
-/* Argüman veya dosya adlarındaki quote tiplerini belirtir */
 typedef enum e_quote_type {
-	Q_NONE,        // Quote yok
-	Q_SINGLE,      // '
-	Q_DOUBLE       // "
+	Q_NONE,
+	Q_SINGLE,
+	Q_DOUBLE
 }	t_quote_type;
 
-/* AST düğüm tipleri */
 typedef enum e_node_type {
-	NODE_COMMAND,  // Komut düğümü (ls, echo ...)
-	NODE_PIPE,     // Pipe (|) düğümü
-	NODE_REDIR     // Redirect (<, >, >>, <<) düğümü
+	NODE_COMMAND,
+	NODE_PIPE,
+	NODE_REDIR
 }	t_node_type;
 
-/* Redirect yönlerini belirtir */
 typedef enum e_redirect_type {
-	REDIR_IN,      // <
-	REDIR_OUT,     // >
-	REDIR_APPEND,  // >>
-	REDIR_HEREDOC  // <<
+	REDIR_IN,
+	REDIR_OUT,
+	REDIR_APPEND,
+	REDIR_HEREDOC
 }	t_redirect_type;
 
-
+typedef enum e_sigmode
+{
+	SIGMODE_PROMPT,
+	SIGMODE_HEREDOC,
+	SIGMODE_CHILD,
+	SIGMODE_NEUTRAL
+}	t_sigmode;
 
 /* ==================== TOKEN YAPISI ==================== */
 
-/* Lexing aşamasında oluşturulan token'ları temsil eder */
 typedef struct s_token {
-	char *value;             // Token metni
-	t_token_type type;       // Token tipi
-	t_quote_type quote_type; // Quote bilgisi
-	struct s_token	*next;   // Token listesi için bağlı liste yapısı
-	struct s_token	*prev;   // Önceki token'ı gösterir (heredoc kontrolü için)
-
+	char *value;
+	t_token_type type;
+	t_quote_type quote_type;
+	struct s_token	*next;
+	struct s_token	*prev;
 } t_token;
 
-/* ==================== PARSER AST YAPILARI ==================== */
-/* New structure to track redirection order */
+/* ==================== REDIRECTION YAPILARI ==================== */
+
+/* ✅ YENİ: Her redirection için fd ve geçici dosya bilgisi */
 typedef struct s_redirection
 {
 	t_token_type type;          // T_INPUT, T_OUTPUT, T_APPEND, T_HEREDOC
 	char *filename;             // Filename for redirection
 	t_quote_type quote_type;    // Quote type of filename
 	int position;               // Original position in command line
+	
+	/* ✅ YENİ: FD management */
+	int fd;                     // Açılan dosya descriptor'u
+	char *temp_file;            // Heredoc için geçici dosya adı
+	int is_applied;             // Bu redirection uygulandı mı?
+	
+	/* ✅ YENİ: Heredoc specific */
+	char *delimiter;            // Heredoc delimiter (expanded)
+	int should_expand;          // Variable expansion yapılacak mı?
 } t_redirection;
+
+/* ==================== AST YAPISI ==================== */
 typedef struct s_ast {
-	t_node_type type;            // Komut, pipe veya redirect
-	char            **args;          // Komut argümanları (NODE_COMMAND için)
-	t_quote_type	*quote_types;     // Her argümana karşılık gelen quote türleri (args ile paralel)
-	t_redirect_type redirect_type;   // Yönlendirme türü (NODE_REDIR için)
-	char            *file;           // Yönlendirilen dosya adı (NODE_REDIR için)
-	t_quote_type    file_quote;      // Dosya isminin quote bilgisi (özellikle heredoc için önemli)
-	struct s_ast    *left;           // Sol alt düğüm
-	struct s_ast    *right;          // Sağ alt düğüm
+	t_node_type type;
+	char **args;
+	t_quote_type *quote_types;
+	t_redirect_type redirect_type;   // Legacy
+	char *file;                      // Legacy
+	t_quote_type file_quote;         // Legacy
+	struct s_ast *left;
+	struct s_ast *right;
 	
-	// ✅ Existing array-based redirection system
-	char **input_files;        // Input redirection dosyaları
-	char **output_files;       // Output redirection dosyaları  
-	char **append_files;       // Append redirection dosyaları
-	char **heredoc_delims;     // Heredoc delimiter'ları
+	/* ✅ YENİ: Geliştirilmiş redirection sistemi */
+	t_redirection *redirections;     // Sıralı redirection dizisi
+	int redir_count;                 // Toplam redirection sayısı
 	
-	t_quote_type *input_quotes;         // Input dosyalarının quote durumu
-	t_quote_type *output_quotes;        // Output dosyalarının quote durumu
-	t_quote_type *append_quotes;        // Append dosyalarının quote durumu
-	t_quote_type *heredoc_quotes;       // Heredoc delimiter'larının quote durumu
+	/* ✅ YENİ: Pre-execution fd backup */
+	int saved_stdin_fd;              // Bu komut için kaydedilen STDIN
+	int saved_stdout_fd;             // Bu komut için kaydedilen STDOUT
+	int redirections_applied;        // Redirections uygulandı mı?
 	
+	/* Legacy arrays - backward compatibility için */
+	char **input_files;
+	char **output_files;
+	char **append_files;
+	char **heredoc_delims;
+	char **heredoc_contents;
+	t_quote_type *input_quotes;
+	t_quote_type *output_quotes;
+	t_quote_type *append_quotes;
+	t_quote_type *heredoc_quotes;
 	int input_count;
 	int output_count;
 	int append_count;
 	int heredoc_count;
-	
-	// ✅ NEW: Ordered redirection array
-	t_redirection *redirections;    // Array of redirections in order
-	int redir_count;               // Number of redirections
 }	t_ast;
 
-/* ==================== KOMUT YAPISI (EXECUTION) ==================== */
+/* ==================== SHELL YAPISI ==================== */
+typedef struct t_shell
+{
+	int exit_code;
+	char **envp;
+	int saved_stdin;             // Global stdin backup
+	int saved_stdout;            // Global stdout backup
+	int heredoc_counter;         // Unique heredoc temp file counter
+	int interrupted;             // Signal interrupt flag
+	t_ast *ast;                  // Root AST pointer
+	
+	/* ✅ YENİ: Heredoc pre-processing */
+	char **heredoc_temp_files;   // Tüm heredoc geçici dosyaları
+	int heredoc_temp_count;      // Geçici dosya sayısı
+} t_shell;
+
+/* ==================== ENVIRONMENT YAPISI ==================== */
+typedef struct s_env
+{
+	char *key;
+	char *value;
+	struct s_env *next;
+} t_env;
+
+/* ==================== KOMUT YAPISI ==================== */
 typedef struct s_cmd {
 	char **args;
 	int is_pipe;
@@ -111,84 +154,37 @@ typedef struct s_cmd {
 	int has_heredoc;
 	int has_dollar;
 	int q_type;
-	int *args_quote_type;  // Her argümanın tırnak tipini saklamak için yeni alan
+	int *args_quote_type;
 	char *input_file;
 	char *output_file;
 	char *append_file;
 	char *heredoc_delim;
 } t_cmd;
 
-typedef struct t_shell
-{
-	int     exit_code;      // Son komutun exit kodu
-	char    **envp;         // Environment variables
-	int     saved_stdin;    // Original STDIN_FILENO backup
-	int     saved_stdout;   // Original STDOUT_FILENO backup
-	int     heredoc_counter; // Heredoc temp file unique counter
-	int     interrupted;    // Interrupt flag for signal handling
-} t_shell;
+/* ==================== FUNCTION PROTOTYPES ==================== */
 
-/* ==================== UPDATED FUNCTION PROTOTYPES ==================== */
+/* ✅ YENİ: Geliştirilmiş redirection fonksiyonları */
+int preprocess_all_heredocs(t_ast *ast, t_env **env_list, t_shell *shell);
+int setup_command_redirections(t_ast *cmd, t_env **env_list, t_shell *shell);
+int restore_command_redirections(t_ast *cmd);
+void cleanup_heredoc_temp_files(t_shell *shell);
+int apply_redirection(t_redirection *redir, t_ast *cmd, t_shell *shell);
 
-// ✅ UPDATED: restore_redirections now takes shell parameter
-int restore_redirections(t_shell *shell);
-/* ==================== ENVIRONMENT YAPISI ==================== */
-typedef struct s_env
-{
-	char *key;           // Değişken adı (ör: "USER")
-	char *value;         // Değişken değeri (ör: "ahmet")
-	struct s_env *next;  // Listedeki sonraki düğüm
-} t_env;
+/* ✅ YENİ: Heredoc processing */
+int process_heredoc_delimiter(t_redirection *redir, t_env **env_list, t_shell *shell);
+char *create_heredoc_temp_file(t_shell *shell);
+int read_heredoc_content(const char *delimiter, int should_expand, 
+                        t_env **env_list, t_shell *shell, const char *temp_file);
 
-/* ==================== SİNYAL YÖNETİMİ ==================== */
-typedef enum e_sigmode
-{
-	SIGMODE_PROMPT,
-	SIGMODE_HEREDOC,
-	SIGMODE_CHILD,
-	SIGMODE_NEUTRAL
-}	t_sigmode;
-
-
-void set_token_prev_fields(t_token **tokens);
-int	ft_strcmp(const char *s1, const char *s2);
-t_env	*new_env_node(char *key, char *value);
-void	set_signal_mode(t_sigmode mode, t_shell *shell);
-int		check_and_reset_signal(t_shell *shell);
-int execute_command_common(t_env *env_list, t_cmd *cmd, t_shell *shell, int is_child_process);
-int	builtin_exit(char **args, t_shell *shell);
-char	*ft_strncpy(char *dest, const char *src, size_t n);
-int	is_n_flag(const char *str);
-void	split_env_line(char *line, char **key, char **value);
-void	add_env_node(t_env **env_list, t_env *new_node);
-/* ==================== BUILTIN VE GENEL FONKSİYONLAR ==================== */
-int ft_pwd(t_env *env_list);  // ✅ UPDATED: now takes env_list parameter
-int ft_strcmp(const char *s1, const char *s2);
-int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell);
-int ft_env(t_env *env_list);
-int ft_cd(t_env *env_list, char **args);
-// builtin.c dosyasının başına ekleyin
-void print_with_expansion(t_env *env_list, char *str, t_shell *shell);
-int is_builtin(t_cmd *cmd);
-int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell);
-// Pipe execution function - NEW SIGNATURE
-int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_ast);
-
-/* ==================== ENV FONKSİYONLARI ==================== */
-char *get_env_value(t_env *env_list, char *key);
-t_env	*init_env_list(char **environ);
-void free_env_list(t_env *env_list);
-
-/* ==================== TOKENIZER FONKSİYONLARI ==================== */
+/* Token ve Parser fonksiyonları */
 t_token **tokenize(char *input);
 t_token **tokenize_with_expansion(char *input, t_env *env_list, t_shell *shell);
 t_token *create_token(char *value, t_token_type type);
 void freetokens(t_token **tokens);
-void	free_token(t_token *token);
+void free_token(t_token *token);
 int fill_tokens_enhanced_with_expansion(char *input, t_token **tokens, t_env *env_list, t_shell *shell);
 int fill_tokens_enhanced(char *input, t_token **tokens);
 int create_word_token_enhanced_simple(char *input, int i, t_token **tokens, int *token_index);
-/* ==================== PARSER FONKSİYONLARI ==================== */
 
 t_ast *parse_tokens(t_token **tokens);
 t_ast *parse_pipe(t_token **tokens, int pipe_index);
@@ -196,31 +192,59 @@ t_ast *parse_command(t_token **tokens, int start, int end);
 void free_ast(t_ast *node);
 void execute_ast(t_ast *node, t_env **env_list, t_shell *shell);
 
-/*=========================== EXPANDER ==========================*/
-void expand_ast(t_ast *node, t_env *env_list, t_shell *shell);
-
+/* Environment fonksiyonları */
+char *get_env_value(t_env *env_list, char *key);
+t_env *init_env_list(char **environ);
+void free_env_list(t_env *env_list);
 char **env_to_array(t_env *env_list);
-int	add_update_env(t_env **env_list, char *key, char *value);
-int	execute_export(t_env **env_list, char **args);
-int	execute_unset(t_env **env_list, char **args);
-void add_env_node(t_env **env_list, t_env *new_node);
 void free_env_array(char **envp);
-char *find_exec(char *command, t_env *env_list);
+int add_update_env(t_env **env_list, char *key, char *value);
+int execute_export(t_env **env_list, char **args);
+int execute_unset(t_env **env_list, char **args);
+void add_env_node(t_env **env_list, t_env *new_node);
+t_env *new_env_node(char *key, char *value);
+void split_env_line(char *line, char **key, char **value);
 
-/*===================== REDIRECTION FONKSİYONLARI ======================*/
-char *expand_string_with_vars(const char *str, t_env *env_list, t_shell *shell);
-int redir_in(t_ast *redir_node, t_env **env_list, t_shell *shell);
-int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell);
+/* Builtin fonksiyonları */
+int ft_pwd(t_env *env_list);
+int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell);
+int ft_env(t_env *env_list);
+int ft_cd(t_env *env_list, char **args);
+int builtin_exit(char **args, t_shell *shell);
+int is_builtin(t_cmd *cmd);
+int run_builtin(t_env *env_list, t_cmd *cmd, t_shell *shell);
 
-// ✅ NEW: Array-based redirection functions
-int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell);
-int	handle_exit(char *input, t_env *env_list);
-void	cleanup_readline(void);
+/* Execution fonksiyonları */
+int execute_command_common(t_env *env_list, t_cmd *cmd, t_shell *shell, int is_child_process);
 int execute_external_command(t_env *env_list, t_cmd *cmd, t_shell *shell);
-int should_remove_arg(const char *original, const char *expanded, t_quote_type quote_type);
-void	free_str_array(char **arr);
+int execute_pipe(t_ast *pipe_node, t_env *env_list, t_shell *shell, t_ast *root_ast);
+
+/* Expansion fonksiyonları */
+void expand_ast(t_ast *node, t_env *env_list, t_shell *shell);
+char *expand_string_with_vars(const char *str, t_env *env_list, t_shell *shell);
+char *expand_token_with_vars(t_token *token, t_env *env_list, t_shell *shell);
 int expand_variable(t_env *env_list, char *str, int start);
 int should_remove_arg(const char *original, const char *expanded, t_quote_type quote_type);
-#include <sys/stat.h>
-char *expand_token_with_vars(t_token *token, t_env *env_list, t_shell *shell);
+void print_with_expansion(t_env *env_list, char *str, t_shell *shell);
+
+/* Legacy redirection fonksiyonları */
+int redir_in(t_ast *redir_node, t_env **env_list, t_shell *shell);
+int execute_redirection(t_ast *redir_node, t_env **env_list, t_shell *shell);
+int setup_redirections(t_ast *cmd, t_env **env_list, t_shell *shell);
+int restore_redirections(t_shell *shell);
+
+/* Utility fonksiyonları */
+char *find_exec(char *command, t_env *env_list);
+int ft_strcmp(const char *s1, const char *s2);
+char *ft_strncpy(char *dest, const char *src, size_t n);
+int is_n_flag(const char *str);
+void free_str_array(char **arr);
+int handle_exit(char *input, t_env *env_list);
+void cleanup_readline(void);
+
+/* Signal management */
+void set_signal_mode(t_sigmode mode, t_shell *shell);
+int check_and_reset_signal(t_shell *shell);
+void set_token_prev_fields(t_token **tokens);
+
 #endif
