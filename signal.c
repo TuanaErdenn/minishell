@@ -1,38 +1,47 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   signal.c                                           :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/07/20 20:05:08 by terden            #+#    #+#             */
+/*   Updated: 2025/07/30 16:59:35 by terden           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "minishell.h"
 
-// Global interrupt flag (sadece bu dosya için)
-static volatile sig_atomic_t g_interrupt_flag = 0;
+volatile sig_atomic_t	g_interrupt_flag = 0;
 
-// Parent process için SIGINT handler - prompt'ta newline + redisplay
-static void handle_sigint_parent(int sig)
+void	free_heredoc(t_shell *shell)
 {
-	(void)sig;
-	g_interrupt_flag = 1;
-	write(STDOUT_FILENO, "\n", 1);
-	rl_replace_line("", 0);
-	rl_on_new_line();
-	rl_redisplay();
+	static t_shell	*temp_shell;
+	t_cleanup_ctx	ctx;
+
+	if (shell)
+	{
+		temp_shell = shell;
+	}
+	else
+	{
+		if (temp_shell && temp_shell->heredoc_fd != -1)
+		{
+			close(temp_shell->heredoc_fd);
+			temp_shell->heredoc_fd = -1;
+		}
+		ctx.shell = temp_shell;
+		ctx.env_list = temp_shell->env_list;
+		ctx.envp = NULL;
+		ctx.original_ast = temp_shell->ast;
+		ctx.exit_code = 130;
+		child_cleanup_and_exit(&ctx);
+	}
 }
 
-// Child process için SIGINT handler - sadece exit kodu ayarla
-static void handle_sigint_child(int sig)
-{
-	(void)sig;
-	exit(130);
-}
-
-// Child process için SIGQUIT handler - quit mesajı + exit
-static void handle_sigquit_child(int sig)
-{
-	(void)sig;
-	exit(131);
-}
-
-// Sinyal kurulum fonksiyonu
-void set_signal_mode(t_sigmode mode, t_shell *shell)
+void	set_signal_mode(t_sigmode mode, t_shell *shell)
 {
 	(void)shell;
-	
 	if (mode == SIGMODE_PROMPT)
 	{
 		signal(SIGINT, handle_sigint_parent);
@@ -40,7 +49,7 @@ void set_signal_mode(t_sigmode mode, t_shell *shell)
 	}
 	else if (mode == SIGMODE_HEREDOC)
 	{
-		signal(SIGINT, handle_sigint_parent);
+		signal(SIGINT, handle_sigint_heredoc);
 		signal(SIGQUIT, SIG_IGN);
 	}
 	else if (mode == SIGMODE_NEUTRAL)
@@ -55,8 +64,7 @@ void set_signal_mode(t_sigmode mode, t_shell *shell)
 	}
 }
 
-// Sinyal durumunu kontrol fonksiyonu
-int check_and_reset_signal(t_shell *shell)
+int	check_and_reset_signal(t_shell *shell)
 {
 	if (g_interrupt_flag)
 	{

@@ -6,82 +6,61 @@
 /*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/09 16:12:43 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/16 19:56:08 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/08/02 18:42:26 by zyilmaz          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "minishell.h"
 
-static int	check_quotes(char *input)
+static int	only_space(char *input)
 {
-	int	in_single;
-	int	in_double;
 	int	i;
 
 	i = 0;
-	in_single = 0;
-	in_double = 0;
 	while (input[i])
 	{
-		if (input[i] == '"' && !in_single)
-			in_double = !in_double;
-		else if (input[i] == '\'' && !in_double)
-			in_single = !in_single;
+		if (input[i] != ' ' && input[i] != '\n' && input[i] != '\t'
+			&& input[i] != '\v' && input[i] != '\f' && input[i] != '\r')
+			return (0);
 		i++;
-	}
-	if (in_double || in_single)
-	{
-		printf("Syntax Error: Unmatched quotes\n");
-		return (0);
 	}
 	return (1);
 }
 
-static void	process_input(char *input, t_env *env_list, t_shell *shell)
-{
-	t_token	**tokens;
-
-	tokens = NULL;
-	shell->ast = NULL;
-	if (!input || !*input)
-		return ;
-	if (!check_quotes(input))
-		return ;
-	tokens = tokenize_with_expansion(input, env_list, shell);
-	if (!tokens)
-		return ;
-	shell->ast = parse_tokens(tokens);
-	freetokens(tokens);
-	tokens = NULL;
-	if (!shell->ast)
+int	whitespace_check(char *input)
+{	
+	if (input[0] == '\0' || only_space(input))
 	{
-		// Parse error oldu - exit code 2 yap
-		shell->exit_code = 2;
-		return ;
+		if (input[0] != '\n' && input[0] != '\0')
+			add_history(input);
+		free(input);
+		return (1);
 	}
-	execute_ast(shell->ast, &env_list, shell);
-	if (shell->ast)
-	{
-		free_ast(shell->ast);
-		shell->ast = NULL;
-	}
+	return (0);
 }
 
-static void	initshell(t_shell *shell, char **envp)
+static int	handle_input(char *input, t_env *env_list, t_shell *shell)
 {
-	shell->exit_code = 0;
-	shell->envp = envp;
-	shell->saved_stdin = -1;
-	shell->saved_stdout = -1;
-	shell->heredoc_counter = 0;
-	shell->interrupted = 0;
-	shell->heredoc_temp_files = NULL;
-    shell->heredoc_temp_count = 0;  // ✅ Bu satır olmalı
-}
-
-void	cleanup_readline(void)
-{
-	rl_clear_history();
+	if (*input)
+	{
+		add_history(input);
+		if (shell->needs_heredoc_cleanup && shell->heredoc_temp_files)
+		{
+			cleanup_heredoc_temp_files(shell);
+			shell->needs_heredoc_cleanup = 0;
+		}
+		if (handle_exit(input, env_list))
+		{
+			free(input);
+			return (1);
+		}
+		process_input(input, env_list, shell);
+		if (shell->should_exit)
+		{
+			return (1);
+		}
+	}
+	return (0);
 }
 
 static void	shell_loop(t_env *env_list, t_shell *shell)
@@ -92,33 +71,21 @@ static void	shell_loop(t_env *env_list, t_shell *shell)
 	{
 		set_signal_mode(SIGMODE_PROMPT, shell);
 		input = readline("🐣🌞 minishell ");
-		
-		// Readline interrupt oldu mu kontrol et (Ctrl+C basıldı)
 		if (!input)
 		{
 			write(1, "exit\n", 5);
 			break ;
 		}
-		
-		// Interrupt flag'ini kontrol et
+		if (whitespace_check(input))
+			continue ;
 		check_and_reset_signal(shell);
-		
 		set_signal_mode(SIGMODE_NEUTRAL, shell);
-		
-		if (*input)
-		{
-			add_history(input);
-			if (handle_exit(input, env_list))
-			{
-				free(input);
-				break ;
-			}
-			process_input(input, env_list, shell);
-		}
-		
+		if (handle_input(input, env_list, shell))
+			break ;
 		free(input);
+		input = NULL;
 	}
-	cleanup_readline();
+	rl_clear_history();
 }
 
 int	main(int argc, char **argv, char **envp)
@@ -139,8 +106,12 @@ int	main(int argc, char **argv, char **envp)
 		return (1);
 	}
 	initshell(&shell, envp);
+	shell.env_list = env_list;
 	shell_loop(env_list, &shell);
-	
+	if (shell.heredoc_temp_files)
+	{
+		cleanup_heredoc_temp_files(&shell);
+	}
 	free_env_list(env_list);
 	return (shell.exit_code);
 }

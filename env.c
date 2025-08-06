@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   env.c                                              :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
+/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/11 17:09:27 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/11 17:11:30 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/08/01 19:22:59 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,6 +28,19 @@ void	create_and_add_node(t_env **env_list, char *key, char *value)
 		free(value);
 }
 
+static t_env	*init_empty_env(void)
+{
+	t_env	*env_list;
+	char	*pwd;
+
+	env_list = NULL;
+	pwd = getcwd(NULL, 0);
+	create_and_add_node(&env_list, ft_strdup("PWD"), pwd);
+	create_and_add_node(&env_list, ft_strdup("SHLVL"), ft_strdup("1"));
+	create_and_add_node(&env_list, ft_strdup("_"), ft_strdup("/usr/bin/env"));
+	return (env_list);
+}
+
 t_env	*init_env_list(char **environ)
 {
 	t_env	*env_list;
@@ -37,6 +50,10 @@ t_env	*init_env_list(char **environ)
 
 	i = 0;
 	env_list = NULL;
+	if (!environ || !environ[0])
+	{
+		return (init_empty_env());
+	}
 	while (environ[i])
 	{
 		key = NULL;

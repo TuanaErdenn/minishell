@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   env_utils.c                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
+/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/11 17:03:35 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/11 17:12:42 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/07/18 14:18:34 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,12 @@ int	ft_strcmp(const char *s1, const char *s2)
 {
 	int	i;
 
+	if (!s1 && !s2)
+		return (0);
+	if (!s1)
+		return (-1);
+	if (!s2)
+		return (1);
 	i = 0;
 	while (s1[i] && s2[i] && s1[i] == s2[i])
 		i++;

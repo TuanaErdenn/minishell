@@ -1,46 +1,42 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   free.c                                             :+:      :+:    :+:   */
+/*   signal_handle.c                                    :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/07/25 17:07:51 by terden            #+#    #+#             */
-/*   Updated: 2025/08/03 14:08:00 by terden           ###   ########.fr       */
+/*   Created: 2025/07/25 20:13:47 by terden            #+#    #+#             */
+/*   Updated: 2025/07/25 20:17:00 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "minishell.h"
 
-void	free_env_list(t_env *env_list)
+void	handle_sigint_parent(int sig)
 {
-	t_env	*temp;
-
-	temp = NULL;
-	while (env_list)
-	{
-		temp = env_list;
-		env_list = env_list->next;
-		free(temp->key);
-		free(temp->value);
-		free(temp);
-	}
+	(void)sig;
+	g_interrupt_flag = 1;
+	write(STDOUT_FILENO, "\n", 1);
+	rl_replace_line("", 0);
+	rl_on_new_line();
+	rl_redisplay();
 }
 
-void	free_env_array(char **envp)
+void	handle_sigint_child(int sig)
 {
-	int	i;
-
-	i = 0;
-	while (envp && envp[i])
-		free(envp[i++]);
-	free(envp);
+	(void)sig;
+	exit(130);
 }
 
-void	free_key_value(char *key, char *value)
+void	handle_sigint_heredoc(int sig)
 {
-	if (key)
-		free(key);
-	if (value)
-		free(value);
+	(void)sig;
+	free_heredoc(NULL);
+	exit(130);
+}
+
+void	handle_sigquit_child(int sig)
+{
+	(void)sig;
+	exit(131);
 }

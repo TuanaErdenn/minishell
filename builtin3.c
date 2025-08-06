@@ -3,21 +3,21 @@
 /*                                                        :::      ::::::::   */
 /*   builtin3.c                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
+/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/09 16:38:49 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/11 19:01:40 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/07/18 14:11:29 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "minishell.h"
 
-int expand_variable(t_env *env_list, char *str, int start)
+int	expand_variable(t_env *env_list, char *str, int start)
 {
-	char var_name[256];
-	int i;
-	int var_len;
-	char *value;
+	char	var_name[256];
+	int		i;
+	int		var_len;
+	char	*value;
 
 	i = start;
 	while (str[i] && (ft_isalnum(str[i]) || str[i] == '_'))
@@ -36,7 +36,7 @@ int expand_variable(t_env *env_list, char *str, int start)
 	return (start);
 }
 
-static int handle_dollar(t_env *env_list, char *str, int i, t_shell *shell)
+static int	handle_dollar(t_env *env_list, char *str, int i, t_shell *shell)
 {
 	if (str[i + 1] == '?')
 	{
@@ -46,9 +46,9 @@ static int handle_dollar(t_env *env_list, char *str, int i, t_shell *shell)
 	return (expand_variable(env_list, str, i + 1));
 }
 
-void print_with_expansion(t_env *env_list, char *str, t_shell *shell)
+void	print_with_expansion(t_env *env_list, char *str, t_shell *shell)
 {
-	int i;
+	int	i;
 
 	i = 0;
 	while (str[i])
@@ -65,10 +65,10 @@ void print_with_expansion(t_env *env_list, char *str, t_shell *shell)
 	}
 }
 
-int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell)
+int	ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell)
 {
-	int i;
-	int newline;
+	int	i;
+	int	newline;
 
 	i = 1;
 	newline = 1;
@@ -92,17 +92,15 @@ int ft_echo(t_env *env_list, char **args, t_cmd cmd, t_shell *shell)
 	return (0);
 }
 
-int ft_env(t_env *env_list)
+int	ft_env(t_env *env_list)
 {
-	t_env *current;
+	t_env	*current;
 
 	if (!env_list)
 		return (0);
-
 	current = env_list;
 	while (current)
 	{
-		// Sadece value'si olan değişkenleri yazdır (boş olsa bile)
 		if (current->value != NULL)
 		{
 			ft_putstr_fd(current->key, 1);

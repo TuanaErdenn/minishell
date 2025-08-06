@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   builtin.c                                          :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: zyilmaz <zyilmaz@student.42.fr>            +#+  +:+       +#+        */
+/*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/07/09 16:41:40 by zyilmaz           #+#    #+#             */
-/*   Updated: 2025/07/11 15:00:53 by zyilmaz          ###   ########.fr       */
+/*   Updated: 2025/07/31 14:47:35 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -54,9 +54,9 @@ int	is_n_flag(const char *str)
 {
 	int	i;
 
-	i = 1;
-	if (!str || str[0] != '-')
+	if (!str || str[0] != '-' || str[1] != 'n')
 		return (0);
+	i = 2;
 	while (str[i])
 	{
 		if (str[i] != 'n')

@@ -1,46 +1,45 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   free.c                                             :+:      :+:    :+:   */
+/*   token_utils1.c                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/07/25 17:07:51 by terden            #+#    #+#             */
-/*   Updated: 2025/08/03 14:08:00 by terden           ###   ########.fr       */
+/*   Created: 2025/07/27 17:48:00 by terden            #+#    #+#             */
+/*   Updated: 2025/08/03 13:25:37 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "minishell.h"
 
-void	free_env_list(t_env *env_list)
-{
-	t_env	*temp;
-
-	temp = NULL;
-	while (env_list)
-	{
-		temp = env_list;
-		env_list = env_list->next;
-		free(temp->key);
-		free(temp->value);
-		free(temp);
-	}
-}
-
-void	free_env_array(char **envp)
+void	freetokens(t_token **tokens)
 {
 	int	i;
 
 	i = 0;
-	while (envp && envp[i])
-		free(envp[i++]);
-	free(envp);
+	if (!tokens)
+		return ;
+	while (tokens[i])
+	{
+		if (tokens[i]->value)
+			free(tokens[i]->value);
+		free(tokens[i]);
+		i++;
+	}
+	free(tokens);
 }
 
-void	free_key_value(char *key, char *value)
+int	is_space(char c)
 {
-	if (key)
-		free(key);
-	if (value)
-		free(value);
+	return (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+		|| c == '\v');
+}
+
+int	skip_spaces(char *input, int i)
+{
+	while (input[i] && is_space(input[i]))
+	{
+		i++;
+	}
+	return (i);
 }

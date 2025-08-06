@@ -1,46 +1,29 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   free.c                                             :+:      :+:    :+:   */
+/*   token_utils3.c                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: terden <terden@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/07/25 17:07:51 by terden            #+#    #+#             */
-/*   Updated: 2025/08/03 14:08:00 by terden           ###   ########.fr       */
+/*   Created: 2025/07/27 17:52:45 by terden            #+#    #+#             */
+/*   Updated: 2025/08/03 13:38:36 by terden           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "minishell.h"
 
-void	free_env_list(t_env *env_list)
+t_token	*create_token(char *value, t_token_type type)
 {
-	t_env	*temp;
-
-	temp = NULL;
-	while (env_list)
-	{
-		temp = env_list;
-		env_list = env_list->next;
-		free(temp->key);
-		free(temp->value);
-		free(temp);
-	}
+	return (create_token_with_quote(value, type, Q_NONE));
 }
 
-void	free_env_array(char **envp)
+t_token	*create_token_with_expansion(char *value, t_token_type type,
+		int quote_type, int was_expanded)
 {
-	int	i;
+	t_token	*token;
 
-	i = 0;
-	while (envp && envp[i])
-		free(envp[i++]);
-	free(envp);
-}
-
-void	free_key_value(char *key, char *value)
-{
-	if (key)
-		free(key);
-	if (value)
-		free(value);
+	token = create_token_with_quote(value, type, quote_type);
+	if (token)
+		token->was_expanded = was_expanded;
+	return (token);
 }
